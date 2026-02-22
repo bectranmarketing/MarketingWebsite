@@ -176,6 +176,16 @@ const getPreviewSource = ({
         aspectRatio: "8.5 / 11",
       };
     }
+
+    const officeExts = ["ppt", "pptx", "doc", "docx", "xls", "xlsx"];
+    const isOfficeDoc = officeExts.includes(fileExt);
+    if (isOfficeDoc) {
+      return {
+        type: "office" as const,
+        url: `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`,
+        aspectRatio: fileExt.startsWith("ppt") ? "16 / 9" : "4 / 3",
+      };
+    }
   }
 
   return {
@@ -367,13 +377,19 @@ function AssetRow({
                   (e.target as HTMLImageElement).style.display = "none";
                 }}
               />
-            ) : (
+            ) : previewSource.type === "pdf" ? (
               <iframe
                 title={f.name || "Asset preview"}
                 src={`${previewSource.url}#page=1&zoom=page-fit&toolbar=0&navpanes=0&scrollbar=0`}
                 className="h-full w-full border-0 pointer-events-none"
               />
-            )}
+            ) : previewSource.type === "office" ? (
+              <iframe
+                title={f.name || "Asset preview"}
+                src={previewSource.url}
+                className="h-full w-full border-0 pointer-events-none"
+              />
+            ) : null}
           </div>
         ) : (
           <div
@@ -1412,13 +1428,19 @@ export default function Block() {
                             alt={selectedPreview?.filename || selectedAssetFields.name}
                             className="h-full w-full object-contain rounded-lg"
                           />
-                        ) : (
+                        ) : selectedPreviewSource.type === "pdf" ? (
                           <iframe
                             title={selectedAssetFields.name || "Asset preview"}
                             src={`${selectedPreviewSource.url}#page=1&zoom=page-fit&toolbar=0&navpanes=0&scrollbar=0`}
                             className="h-full w-full rounded-lg border-0"
                           />
-                        )}
+                        ) : selectedPreviewSource.type === "office" ? (
+                          <iframe
+                            title={selectedAssetFields.name || "Asset preview"}
+                            src={selectedPreviewSource.url}
+                            className="h-full w-full rounded-lg border-0"
+                          />
+                        ) : null}
                       </div>
                     </div>
                   ) : (
