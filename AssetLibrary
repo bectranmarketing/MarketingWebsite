@@ -128,6 +128,22 @@ const getFileExt = (name?: string): string => {
   return parts.length > 1 ? parts.pop() || "" : "";
 };
 
+const getFileMeta = (file: any, publicLink?: string) => {
+  const f = Array.isArray(file) ? file[0] : file;
+  const url =
+    f?.url ||
+    f?.public_url ||
+    f?.publicUrl ||
+    f?.link ||
+    f?.href ||
+    (typeof f === "string" ? f : "") ||
+    publicLink ||
+    "";
+  const name = f?.name || f?.filename || (typeof f === "string" ? f : publicLink) || "";
+  const type = String(f?.type || f?.mimeType || "").toLowerCase();
+  return { url, name, type };
+};
+
 const getPreviewSource = ({
   preview,
   file,
@@ -152,9 +168,8 @@ const getPreviewSource = ({
     };
   }
 
-  const fileUrl = file?.url || publicLink;
-  const fileType = String(file?.type || "").toLowerCase();
-  const fileExt = getFileExt(file?.name || file?.filename || publicLink);
+  const { url: fileUrl, type: fileType, name: fileName } = getFileMeta(file, publicLink);
+  const fileExt = getFileExt(fileName);
 
   if (fileUrl) {
     const isImage =
@@ -346,7 +361,7 @@ function AssetRow({
   const catStyle = getCategoryStyle(catLabel);
   const CatIcon = catStyle.icon;
   const hasLink = !!f.publicLink;
-  const hasFile = !!file?.url;
+  const hasFile = !!getFileMeta(file, f.publicLink).url;
   const previewSource = getPreviewSource({
     preview,
     file,
@@ -377,19 +392,14 @@ function AssetRow({
                   (e.target as HTMLImageElement).style.display = "none";
                 }}
               />
-            ) : previewSource.type === "pdf" ? (
-              <iframe
-                title={f.name || "Asset preview"}
-                src={`${previewSource.url}#page=1&zoom=page-fit&toolbar=0&navpanes=0&scrollbar=0`}
-                className="h-full w-full border-0 pointer-events-none"
-              />
-            ) : previewSource.type === "office" ? (
-              <iframe
-                title={f.name || "Asset preview"}
-                src={previewSource.url}
-                className="h-full w-full border-0 pointer-events-none"
-              />
-            ) : null}
+            ) : (
+              <div className="h-full w-full flex flex-col items-center justify-center gap-1.5 text-muted-foreground bg-muted/60">
+                <FileText className="h-5 w-5 opacity-70" />
+                <span className="text-[10px] font-medium uppercase tracking-wide">
+                  {previewSource.type === "pdf" ? "PDF" : "Document"}
+                </span>
+              </div>
+            )}
           </div>
         ) : (
           <div
@@ -626,7 +636,7 @@ export default function Block() {
         : itemOrFile.fields.file
       : itemOrFile;
 
-    let latestUrl = fallbackFile?.url;
+    let latestUrl = getFileMeta(fallbackFile).url;
 
     if (itemOrFile?.id) {
       try {
@@ -641,8 +651,9 @@ export default function Block() {
             : refreshedItem.fields.file
           : null;
 
-        if (refreshedFile?.url) {
-          latestUrl = refreshedFile.url;
+        const refreshedUrl = getFileMeta(refreshedFile).url;
+        if (refreshedUrl) {
+          latestUrl = refreshedUrl;
         }
       } catch {
         // Fallback to the currently loaded URL if refetch fails.
@@ -1469,7 +1480,7 @@ export default function Block() {
                         Open Link
                       </Button>
                     )}
-                    {selectedFile?.url && (
+                    {getFileMeta(selectedFile, selectedAssetFields?.publicLink).url && (
                       <Button
                         variant="outline"
                         onClick={() => handleDownload(selectedAsset)}
