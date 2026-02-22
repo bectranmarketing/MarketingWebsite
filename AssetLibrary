@@ -122,6 +122,69 @@ const toSubArray = (v: any): string[] => {
   return s ? [s] : [];
 };
 
+const getFileExt = (name?: string): string => {
+  if (!name) return "";
+  const parts = name.toLowerCase().split(".");
+  return parts.length > 1 ? parts.pop() || "" : "";
+};
+
+const getPreviewSource = ({
+  preview,
+  file,
+  publicLink,
+  category,
+}: {
+  preview: any;
+  file: any;
+  publicLink?: string;
+  category?: string;
+}) => {
+  if (preview?.url) {
+    return {
+      type: "image" as const,
+      url: preview.url,
+      aspectRatio:
+        preview?.width && preview?.height
+          ? `${preview.width} / ${preview.height}`
+          : category === "One Pager"
+          ? "8.5 / 11"
+          : "4 / 3",
+    };
+  }
+
+  const fileUrl = file?.url || publicLink;
+  const fileType = String(file?.type || "").toLowerCase();
+  const fileExt = getFileExt(file?.name || file?.filename || publicLink);
+
+  if (fileUrl) {
+    const isImage =
+      fileType.startsWith("image/") ||
+      ["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(fileExt);
+    if (isImage) {
+      return {
+        type: "image" as const,
+        url: fileUrl,
+        aspectRatio: category === "One Pager" ? "8.5 / 11" : "4 / 3",
+      };
+    }
+
+    const isPdf = fileType.includes("pdf") || fileExt === "pdf";
+    if (isPdf) {
+      return {
+        type: "pdf" as const,
+        url: fileUrl,
+        aspectRatio: "8.5 / 11",
+      };
+    }
+  }
+
+  return {
+    type: "none" as const,
+    url: "",
+    aspectRatio: category === "One Pager" ? "8.5 / 11" : "4 / 3",
+  };
+};
+
 // ─── Quiz config ──────────────────────────────────────────────────────────────
 type QuizId = "category" | "subcategory";
 
@@ -274,12 +337,12 @@ function AssetRow({
   const CatIcon = catStyle.icon;
   const hasLink = !!f.publicLink;
   const hasFile = !!file?.url;
-  const previewAspectRatio =
-    preview?.width && preview?.height
-      ? `${preview.width} / ${preview.height}`
-      : catLabel === "One Pager"
-      ? "8.5 / 11"
-      : "4 / 3";
+  const previewSource = getPreviewSource({
+    preview,
+    file,
+    publicLink: f.publicLink,
+    category: catLabel,
+  });
 
   return (
     <div
@@ -290,19 +353,27 @@ function AssetRow({
       {/* Top row: thumbnail | name + badges | action button */}
       <div className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4">
         {/* Thumbnail */}
-        {preview?.url ? (
+        {previewSource.type !== "none" ? (
           <div
             className="shrink-0 h-16 sm:h-20 rounded-lg overflow-hidden bg-muted max-w-[112px] sm:max-w-[136px]"
-            style={{ aspectRatio: previewAspectRatio }}
+            style={{ aspectRatio: previewSource.aspectRatio }}
           >
-            <img
-              src={preview.url}
-              alt={f.name || "Asset preview"}
-              className="h-full w-full object-cover group-hover:scale-[1.03] transition-transform duration-500 ease-out"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
-            />
+            {previewSource.type === "image" ? (
+              <img
+                src={previewSource.url}
+                alt={f.name || "Asset preview"}
+                className="h-full w-full object-cover group-hover:scale-[1.03] transition-transform duration-500 ease-out"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
+              />
+            ) : (
+              <iframe
+                title={f.name || "Asset preview"}
+                src={`${previewSource.url}#page=1&zoom=page-fit&toolbar=0&navpanes=0&scrollbar=0`}
+                className="h-full w-full border-0 pointer-events-none"
+              />
+            )}
           </div>
         ) : (
           <div
@@ -679,6 +750,22 @@ export default function Block() {
     return () => document.removeEventListener("keydown", handler);
   }, [selectedAsset]);
 
+  // Prevent any page/modal scroll while overlays are open
+  useEffect(() => {
+    const lockScroll = quizOpen || !!selectedAsset;
+    if (!lockScroll) return;
+
+    const htmlOverflow = document.documentElement.style.overflow;
+    const bodyOverflow = document.body.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.documentElement.style.overflow = htmlOverflow;
+      document.body.style.overflow = bodyOverflow;
+    };
+  }, [quizOpen, selectedAsset]);
+
   // ─── Active filter chips ──────────────────────────────────────────────────
   const activeFilters: { label: string; value: string; clear: () => void }[] = [
     ...(selectedCategory
@@ -721,12 +808,12 @@ export default function Block() {
   const selectedCatStyle = getCategoryStyle(selectedCatLabel);
   const SelectedCatIcon = selectedCatStyle.icon;
   const isSelectedCopied = copiedLink === selectedAssetFields?.publicLink;
-  const selectedPreviewAspectRatio =
-    selectedPreview?.width && selectedPreview?.height
-      ? `${selectedPreview.width} / ${selectedPreview.height}`
-      : selectedCatLabel === "One Pager"
-      ? "8.5 / 11"
-      : "4 / 3";
+  const selectedPreviewSource = getPreviewSource({
+    preview: selectedPreview,
+    file: selectedFile,
+    publicLink: selectedAssetFields?.publicLink,
+    category: selectedCatLabel,
+  });
 
   // ─── List View ────────────────────────────────────────────────────────────
   if (status === "pending") {
@@ -1255,7 +1342,7 @@ export default function Block() {
                 role="dialog"
                 aria-modal="true"
                 aria-label={selectedAssetFields.name || "Asset preview"}
-                className="w-full max-w-5xl max-h-[90vh] rounded-2xl bg-background shadow-2xl border border-border outline-none animate-in fade-in-0 zoom-in-95 duration-200 overflow-hidden flex flex-col"
+                className="w-full max-w-5xl rounded-2xl bg-background shadow-2xl border border-border outline-none animate-in fade-in-0 zoom-in-95 duration-200 overflow-hidden flex flex-col"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-border/60">
@@ -1272,18 +1359,26 @@ export default function Block() {
                   </button>
                 </div>
 
-                <div className="overflow-y-auto p-5 sm:p-6">
-                  {selectedPreview?.url ? (
+                <div className="p-5 sm:p-6 overflow-hidden">
+                  {selectedPreviewSource.type !== "none" ? (
                     <div className="w-full rounded-xl border bg-muted/40 p-3 sm:p-4 mb-5">
                       <div
-                        className="mx-auto max-h-[56vh] w-auto"
-                        style={{ aspectRatio: selectedPreviewAspectRatio }}
+                        className="mx-auto max-h-[52vh] w-auto"
+                        style={{ aspectRatio: selectedPreviewSource.aspectRatio }}
                       >
-                        <img
-                          src={selectedPreview.url}
-                          alt={selectedPreview.filename || selectedAssetFields.name}
-                          className="h-full w-full object-contain rounded-lg"
-                        />
+                        {selectedPreviewSource.type === "image" ? (
+                          <img
+                            src={selectedPreviewSource.url}
+                            alt={selectedPreview?.filename || selectedAssetFields.name}
+                            className="h-full w-full object-contain rounded-lg"
+                          />
+                        ) : (
+                          <iframe
+                            title={selectedAssetFields.name || "Asset preview"}
+                            src={`${selectedPreviewSource.url}#page=1&zoom=page-fit&toolbar=0&navpanes=0&scrollbar=0`}
+                            className="h-full w-full rounded-lg border-0"
+                          />
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -1316,7 +1411,7 @@ export default function Block() {
                   </div>
 
                   {selectedAssetFields.description && (
-                    <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-5 line-clamp-3">
                       {selectedAssetFields.description}
                     </p>
                   )}
