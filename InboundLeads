@@ -1,0 +1,1096 @@
+import { useState, useRef, useEffect } from "react";
+import { useRecords, useRecordUpdate, q } from "@/lib/datasource";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Search,
+  X,
+  ChevronDown,
+  ArrowUpDown,
+  Check,
+  Phone,
+  Mail,
+  Linkedin,
+  Building2,
+  User,
+  DollarSign,
+  Pencil,
+  ExternalLink,
+  SlidersHorizontal,
+  AlertCircle,
+} from "lucide-react";
+import { toast } from "sonner";
+
+// ─── Relative time helper ────────────────────────────────────────────────────
+const relativeDate = (dateStr: string): string => {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  const diff = Date.now() - d.getTime();
+  const days = Math.floor(diff / 86400000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+
+// ─── Data shape ─────────────────────────────────────────────────────────────
+const select = q.select({
+  name: "name",
+  company: "text_mkxtrsk2",
+  title: "text_mkxtzxnf",
+  email: "email_mkxt7qw6",
+  phone: "phone_mkxtctk0",
+  photo: "link_mm0r3x4c",
+  linkedin: "link_mkyb5xrz",
+  message: "long_text_mkxte8sx",
+  industry: "dropdown_mkxt7r16",
+  date: "date4",
+  quality: "status",
+  demo: "color_mkxt3dyb",
+  closed: "color_mkxvmpkr",
+  ae: "color_mkxvsbc1",
+  modules: "dropdown_mkxv6jzn",
+  mrr: "numeric_mkxv3zsn",
+  page: "color_mkxt8aah",
+  reason: "color_mkybznn0",
+  trafficSource: "color_mkxtt16r",
+  source: "color_mkxt5p5t",
+  medium: "color_mkxtdkbt",
+  campaign: "color_mkxts896",
+  term: "color_mkxtg2f3",
+  ftSource: "color_mkxtr8ya",
+  ftMedium: "color_mkxthbqw",
+  ftCampaign: "color_mkxtek7f",
+  ftTerm: "color_mkxt2qpf",
+  firstReferrer: "link_mkxt5rjm",
+  firstPage: "link_mkxtjytm",
+  pageUrl: "link_mkxtsqgy",
+  googleClickId: "text_mkxtgv3c",
+  lastUpdated: "pulse_updated_mkxt97fz",
+  group: "group",
+});
+
+const updateFields = q.select({
+  name: "name",
+  company: "text_mkxtrsk2",
+  title: "text_mkxtzxnf",
+  email: "email_mkxt7qw6",
+  phone: "phone_mkxtctk0",
+  quality: "status",
+  demo: "color_mkxt3dyb",
+  closed: "color_mkxvmpkr",
+  ae: "color_mkxvsbc1",
+  mrr: "numeric_mkxv3zsn",
+});
+
+// ─── Option maps for dropdown fields ────────────────────────────────────────
+const QUALITY_OPTIONS = ["New", "Good", "Neutral", "Bad", "Junk"];
+const DEMO_OPTIONS = ["Not Yet", "Scheduled", "Yes", "No"];
+const CLOSED_OPTIONS = ["Not Yet", "Won", "Lost", "Dead", "Pending"];
+const AE_OPTIONS = ["Alexis", "Sarah", "Nico", "Dominic", "None"];
+
+// ─── Status color helpers ────────────────────────────────────────────────────
+const STATUS_COLORS: Record<string, string> = {
+  Good: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
+  Bad: "bg-red-500/10 text-red-700 border-red-500/20",
+  Junk: "bg-red-700/10 text-red-900 border-red-700/20",
+  New: "bg-slate-500/10 text-slate-600 border-slate-400/20",
+  Neutral: "bg-amber-500/10 text-amber-700 border-amber-500/20",
+  Yes: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
+  No: "bg-red-500/10 text-red-700 border-red-500/20",
+  Scheduled: "bg-amber-500/10 text-amber-700 border-amber-500/20",
+  Pending: "bg-cyan-500/10 text-cyan-700 border-cyan-500/20",
+  "Not Yet": "bg-slate-400/10 text-slate-500 border-slate-300/20",
+  Won: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
+  Lost: "bg-red-500/10 text-red-700 border-red-500/20",
+  Dead: "bg-amber-600/10 text-amber-800 border-amber-600/20",
+  Alexis: "bg-blue-500/10 text-blue-700 border-blue-500/20",
+  Sarah: "bg-cyan-500/10 text-cyan-700 border-cyan-500/20",
+  Nico: "bg-slate-500/10 text-slate-600 border-slate-400/20",
+  Dominic: "bg-indigo-400/10 text-indigo-600 border-indigo-400/20",
+  None: "bg-red-500/10 text-red-700 border-red-500/20",
+};
+
+const getStatusColor = (label?: string) =>
+  label
+    ? STATUS_COLORS[label] ?? "bg-muted text-muted-foreground"
+    : "bg-muted text-muted-foreground";
+
+const labelOf = (v: any): string => {
+  if (!v) return "";
+  if (typeof v === "string") return v;
+  return v.label ?? v.name ?? v.value ?? "";
+};
+
+// ─── Inline text field ───────────────────────────────────────────────────────
+function InlineTextField({
+  value,
+  onSave,
+  placeholder = "—",
+  type = "text",
+  className = "",
+}: {
+  value: string;
+  onSave: (val: string) => void;
+  placeholder?: string;
+  type?: string;
+  className?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const open = (e?: React.MouseEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    setDraft(value);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+  const save = () => {
+    setEditing(false);
+    if (draft !== value) onSave(draft);
+  };
+  const cancel = () => {
+    setEditing(false);
+    setDraft(value);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <Input
+          ref={inputRef}
+          type={type}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+            if (e.key === "Escape") cancel();
+          }}
+          className={`h-9 sm:h-7 text-sm py-0 px-2 min-w-0 ${className}`}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    );
+  }
+
+  const isEmail = type === "email";
+
+  return (
+    <button
+      type="button"
+      onClick={open}
+      title="Click to edit"
+      className={`group relative text-left w-full text-sm leading-snug transition-colors rounded px-1.5 py-1 flex gap-1.5 hover:bg-muted/60 cursor-pointer ${
+        isEmail ? "items-start" : "items-center min-h-[36px] sm:min-h-[28px]"
+      } ${value ? "text-foreground" : "text-muted-foreground/50 italic"} ${className}`}
+    >
+      <span className={isEmail ? "break-all" : "truncate"}>
+        {value || placeholder}
+      </span>
+      <Pencil className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-40 transition-opacity" />
+    </button>
+  );
+}
+
+// ─── Inline dropdown field ───────────────────────────────────────────────────
+function InlineDropdown({
+  value,
+  options,
+  onSave,
+  placeholder = "—",
+  isSaving = false,
+}: {
+  value: string;
+  options: string[];
+  onSave: (val: string) => void;
+  placeholder?: string;
+  isSaving?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
+  const displayed = pending ?? value;
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (pending && pending === value) setPending(null);
+  }, [value, pending]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const selectOpt = (opt: string) => {
+    setPending(opt);
+    onSave(opt);
+    // Delay closing to ensure save completes
+    setTimeout(() => setOpen(false), 100);
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="flex items-center gap-1.5 cursor-pointer group min-h-[36px] sm:min-h-0"
+        title="Click to change"
+      >
+        <Badge
+          variant="outline"
+          className={`text-xs font-medium transition-all ${
+            displayed
+              ? getStatusColor(displayed)
+              : "bg-muted/60 text-muted-foreground border-border/40"
+          } hover:ring-1 hover:ring-primary/30`}
+        >
+          {displayed || placeholder}
+        </Badge>
+
+        {isSaving && (
+          <span className="inline-block h-3 w-3 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+        )}
+
+        <ChevronDown
+          className={`h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground transition-all duration-150 ${
+            open ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+
+      {open && (
+        <div
+          className="absolute z-50 top-full mt-1.5 left-0 min-w-[160px] max-h-[240px] overflow-y-auto rounded-xl border bg-background shadow-xl animate-in fade-in-0 zoom-in-95 duration-100 p-1"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {options.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                selectOpt(opt);
+              }}
+              className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 sm:py-1.5 rounded-lg text-sm transition-colors text-left ${
+                displayed === opt ? "bg-muted/80" : "hover:bg-muted/50"
+              }`}
+            >
+              <span
+                className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(
+                  opt
+                )}`}
+              >
+                {opt}
+              </span>
+              {displayed === opt && (
+                <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Lead card ───────────────────────────────────────────────────────────────
+function LeadCard({
+  item,
+  onUpdate,
+  isSaving,
+  defaultExpanded = false,
+}: {
+  item: any;
+  onUpdate: (recordId: string, field: string, value: any) => void;
+  isSaving: boolean;
+  defaultExpanded?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const f = item.fields;
+
+  const saveText = (field: string, val: string) => onUpdate(item.id, field, val);
+  const saveNumber = (field: string, val: string) =>
+    onUpdate(item.id, field, val ? Number(val) : null);
+
+  // ✅ Softr choice fields: update by FIELD ID + { id: choiceId }
+  const FIELD_CHOICE_MAP = {
+    quality: {
+      fieldId: "status",
+      choices: { New: "5", Good: "1", Neutral: "0", Bad: "2", Junk: "3" },
+    },
+    demo: {
+      fieldId: "color_mkxt3dyb",
+      choices: { "Not Yet": "5", Scheduled: "0", Yes: "1", No: "2", Pending: "3" },
+    },
+    closed: {
+      fieldId: "color_mkxvmpkr",
+      choices: { "Not Yet": "5", Won: "1", Lost: "2", Dead: "0" },
+    },
+    ae: {
+      fieldId: "color_mkxvsbc1",
+      choices: { Alexis: "0", Sarah: "3", Nico: "105", Dominic: "156", None: "1" },
+    },
+  } as const;
+
+  const saveChoice = (
+    key: keyof typeof FIELD_CHOICE_MAP,
+    newLabel: string
+  ) => {
+    // Use friendly key name (matching updateFields) with the plain label string.
+    // Softr passes the value through to Monday.com, which matches it
+    // to the existing status option by name.
+    onUpdate(item.id, key, newLabel);
+  };
+
+  const qualityLabel = labelOf(f.quality);
+  const demoLabel = labelOf(f.demo);
+  const closedLabel = labelOf(f.closed);
+  const aeLabel = labelOf(f.ae);
+
+  const photoUrl =
+    typeof f.photo === "string"
+      ? f.photo
+      : f.photo?.url ?? f.photo?.publicUrl ?? "";
+  const initial = (f.name || f.company || "?")[0].toUpperCase();
+
+  const isWon = closedLabel === "Won";
+
+  return (
+    <div
+      className={`rounded-xl border transition-all duration-200 ${
+        isWon
+          ? "bg-emerald-50/60 border-emerald-400/40 dark:bg-emerald-950/20 dark:border-emerald-500/30"
+          : "bg-card"
+      } ${
+        expanded
+          ? "shadow-md border-border/80"
+          : "shadow-sm hover:shadow-md hover:border-border/60"
+      }`}
+    >
+      <div
+        className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 min-h-[56px] cursor-pointer select-none"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <div className="h-9 w-9 shrink-0 rounded-full relative overflow-hidden bg-primary/10 flex items-center justify-center">
+          <span className="text-sm font-semibold text-primary">{initial}</span>
+          {photoUrl && (
+            <img
+              src={photoUrl}
+              alt={f.name || "Lead"}
+              className="absolute inset-0 w-full h-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none";
+              }}
+            />
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-foreground truncate leading-tight">
+            {f.name || (
+              <span className="text-muted-foreground italic font-normal">
+                No name
+              </span>
+            )}
+          </p>
+          <p className="text-xs text-muted-foreground truncate">
+            {f.title && f.company
+              ? `${f.title} · ${f.company}`
+              : f.company || f.title || "—"}
+          </p>
+        </div>
+
+        {closedLabel && closedLabel !== "Not Yet" && (
+          <Badge
+            variant="outline"
+            className={`text-xs shrink-0 ${getStatusColor(closedLabel)}`}
+          >
+            {closedLabel}
+          </Badge>
+        )}
+
+        {f.mrr ? (
+          <span className="text-xs font-semibold text-emerald-700 shrink-0 hidden sm:block">
+            ${Number(f.mrr).toLocaleString()}
+          </span>
+        ) : null}
+
+        <Badge
+          variant="outline"
+          className={`text-xs shrink-0 hidden sm:inline-flex ${getStatusColor(
+            qualityLabel
+          )}`}
+        >
+          {qualityLabel || "New"}
+        </Badge>
+
+        {aeLabel && aeLabel !== "None" && (
+          <Badge
+            variant="outline"
+            className={`text-xs shrink-0 hidden md:inline-flex ${getStatusColor(
+              aeLabel
+            )}`}
+          >
+            {aeLabel}
+          </Badge>
+        )}
+
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-muted-foreground/40 transition-transform duration-200 ${
+            expanded ? "rotate-180" : ""
+          }`}
+        />
+      </div>
+
+      {expanded && (
+        <div className="border-t border-border/60 px-3 sm:px-5 pb-5 sm:pb-6 pt-4 sm:pt-5 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_2fr] gap-x-8 gap-y-5">
+            {/* Contact */}
+            <div className="space-y-3">
+              <p className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-widest mb-3">
+                Contact
+              </p>
+
+              <Field label="Name" icon={<User className="h-3.5 w-3.5" />}>
+                <InlineTextField
+                  value={f.name || ""}
+                  onSave={(v) => saveText("name", v)}
+                  placeholder="Full name"
+                />
+              </Field>
+
+              <Field
+                label="Company"
+                icon={<Building2 className="h-3.5 w-3.5" />}
+              >
+                <InlineTextField
+                  value={f.company || ""}
+                  onSave={(v) => saveText("company", v)}
+                  placeholder="Company name"
+                />
+              </Field>
+
+              <Field label="Title" icon={<User className="h-3.5 w-3.5" />}>
+                <InlineTextField
+                  value={f.title || ""}
+                  onSave={(v) => saveText("title", v)}
+                  placeholder="Job title"
+                />
+              </Field>
+
+              <Field label="Email" icon={<Mail className="h-3.5 w-3.5" />}>
+                <div className="flex items-start gap-1 flex-1 min-w-0">
+                  <InlineTextField
+                    value={f.email || ""}
+                    onSave={(v) => saveText("email", v)}
+                    placeholder="email@company.com"
+                    type="email"
+                  />
+                  {f.email && (
+                    <a
+                      href={`mailto:${f.email}`}
+                      className="mt-0.5 shrink-0 text-muted-foreground/40 hover:text-primary transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                </div>
+              </Field>
+
+              <Field label="Phone" icon={<Phone className="h-3.5 w-3.5" />}>
+                <div className="flex items-center gap-1 flex-1 min-w-0">
+                  <InlineTextField
+                    value={f.phone || ""}
+                    onSave={(v) => saveText("phone", v)}
+                    placeholder="+1 (555) 000-0000"
+                    type="tel"
+                  />
+                  {f.phone && (
+                    <a
+                      href={`tel:${f.phone}`}
+                      className="shrink-0 text-muted-foreground/40 hover:text-primary transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                </div>
+              </Field>
+
+              {f.date && (
+                <Field label="Came in">
+                  <span className="text-sm text-foreground">
+                    {new Date(f.date).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                    <span className="ml-1.5 text-xs text-muted-foreground">
+                      ({relativeDate(f.date)})
+                    </span>
+                  </span>
+                </Field>
+              )}
+
+              {f.linkedin && (
+                <Field label="LinkedIn" icon={<Linkedin className="h-3.5 w-3.5" />}>
+                  <a
+                    href={f.linkedin}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-sm text-primary hover:underline truncate"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    View profile <ExternalLink className="h-3 w-3 shrink-0" />
+                  </a>
+                </Field>
+              )}
+            </div>
+
+            {/* Sales */}
+            <div className="space-y-3">
+              <p className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-widest mb-3">
+                Sales
+              </p>
+
+              <Field label="Quality">
+                <InlineDropdown
+                  value={qualityLabel}
+                  options={QUALITY_OPTIONS}
+                  onSave={(v) => saveChoice("quality", v)}
+                  placeholder="Set quality"
+                  isSaving={isSaving}
+                />
+              </Field>
+
+              <Field label="Demo">
+                <InlineDropdown
+                  value={demoLabel}
+                  options={DEMO_OPTIONS}
+                  onSave={(v) => saveChoice("demo", v)}
+                  placeholder="Set status"
+                  isSaving={isSaving}
+                />
+              </Field>
+
+              <Field label="Deal">
+                <InlineDropdown
+                  value={closedLabel}
+                  options={CLOSED_OPTIONS}
+                  onSave={(v) => saveChoice("closed", v)}
+                  placeholder="Set status"
+                  isSaving={isSaving}
+                />
+              </Field>
+
+              <Field label="AE">
+                <InlineDropdown
+                  value={aeLabel}
+                  options={AE_OPTIONS}
+                  onSave={(v) => saveChoice("ae", v)}
+                  placeholder="Assign AE"
+                  isSaving={isSaving}
+                />
+              </Field>
+
+              <Field label="MRR" icon={<DollarSign className="h-3.5 w-3.5" />}>
+                <InlineTextField
+                  value={f.mrr ? String(f.mrr) : ""}
+                  onSave={(v) => saveNumber("mrr", v)}
+                  placeholder="0"
+                  type="number"
+                />
+              </Field>
+            </div>
+
+            {/* Attribution */}
+            <div className="space-y-3 sm:col-span-2 lg:col-span-1">
+              <p className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-widest mb-3">
+                Attribution
+              </p>
+
+              {[
+                { label: "Traffic Source", val: labelOf(f.trafficSource) },
+                { label: "Source", val: labelOf(f.source) },
+                { label: "Medium", val: labelOf(f.medium) },
+                { label: "Campaign", val: labelOf(f.campaign) },
+                { label: "Page", val: labelOf(f.page) },
+              ].map(({ label, val }) =>
+                val ? (
+                  <Field key={label} label={label}>
+                    <span className="text-sm text-foreground">{val}</span>
+                  </Field>
+                ) : null
+              )}
+
+              {f.pageUrl && (
+                <Field label="Page URL">
+                  <a
+                    href={f.pageUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-primary hover:underline"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span className="truncate max-w-[160px]">{f.pageUrl}</span>
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                  </a>
+                </Field>
+              )}
+            </div>
+          </div>
+
+          {f.message && (
+            <div className="mt-6 pt-5 border-t border-border/40">
+              <p className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-widest mb-3">
+                Message
+              </p>
+              <div className="rounded-xl bg-muted/30 border border-border/40 px-4 py-3 text-sm text-foreground leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">
+                {f.message}
+              </div>
+            </div>
+          )}
+
+          {isSaving && (
+            <div className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="inline-block h-3 w-3 rounded-full border-2 border-primary/40 border-t-primary animate-spin" />
+              Saving…
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Small field layout helper ───────────────────────────────────────────────
+function Field({
+  label,
+  icon,
+  children,
+}: {
+  label: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 min-h-[28px]">
+      <div className="flex items-center gap-1 w-[72px] shrink-0">
+        {icon && <span className="text-muted-foreground/60">{icon}</span>}
+        <span className="text-xs text-muted-foreground truncate">{label}</span>
+      </div>
+      <div className="flex-1 min-w-0">{children}</div>
+    </div>
+  );
+}
+
+// ─── Unassigned leads section ────────────────────────────────────────────────
+function UnassignedSection({
+  items,
+  onUpdate,
+  savingId,
+}: {
+  items: any[];
+  onUpdate: (recordId: string, field: string, value: any) => void;
+  savingId: string | null;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  if (items.length === 0) return null;
+
+  return (
+    <div className="mb-6 rounded-xl border border-amber-400/40 bg-amber-50/60 dark:bg-amber-950/20">
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-amber-100/60 dark:hover:bg-amber-900/20 transition-colors text-left"
+      >
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/15">
+          <AlertCircle className="h-4 w-4 text-amber-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+            Needs AE Assignment
+          </p>
+          <p className="text-xs text-amber-700/70 dark:text-amber-400/70">
+            {items.length} {items.length === 1 ? "lead" : "leads"} waiting to be
+            assigned — click any to expand and assign
+          </p>
+        </div>
+        <span className="shrink-0 flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-white text-xs font-bold">
+          {items.length}
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-amber-600/60 transition-transform duration-200 ${
+            collapsed ? "-rotate-90" : ""
+          }`}
+        />
+      </button>
+
+      {!collapsed && (
+        <div className="border-t border-amber-300/30 px-3 pb-3 pt-2 space-y-2">
+          {items.map((item: any) => (
+            <LeadCard
+              key={item.id}
+              item={item}
+              onUpdate={onUpdate}
+              isSaving={savingId === item.id}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Sort button ─────────────────────────────────────────────────────────────
+function SortButton({
+  label,
+  field,
+  active,
+  order,
+  onClick,
+}: {
+  label: string;
+  field: string;
+  active: boolean;
+  order: "asc" | "desc";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-1 text-xs font-medium transition-colors hover:text-foreground ${
+        active ? "text-primary" : "text-muted-foreground"
+      }`}
+    >
+      {label}
+      <ArrowUpDown className={`h-3 w-3 ${active ? "text-primary" : "text-muted-foreground/40"}`} />
+    </button>
+  );
+}
+
+// ─── Main export ─────────────────────────────────────────────────────────────
+export default function Block() {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortField, setSortField] = useState<string | null>("date");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [filterQuality, setFilterQuality] = useState("");
+  const [filterAE, setFilterAE] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const { data, status, refetch } = useRecords({
+    select,
+    where: searchTerm
+      ? q.or(
+          q.text("name").contains(searchTerm),
+          q.text("company").contains(searchTerm),
+          q.text("email").contains(searchTerm)
+        )
+      : undefined,
+    orderBy: sortField
+      ? sortOrder === "asc"
+        ? q.asc(sortField)
+        : q.desc(sortField)
+      : undefined,
+    count: 100,
+  });
+
+  const updateRecord = useRecordUpdate({
+    fields: updateFields,
+    async onSuccess() {
+      await refetch();
+      toast.success("Saved");
+      setSavingId(null);
+    },
+    onError(error: any) {
+      toast.error(`Failed to save: ${error.message}`);
+      setSavingId(null);
+    },
+  });
+
+  const allItems = data?.pages.flatMap((page: any) => page.items) ?? [];
+
+  const unassignedItems = allItems.filter((item: any) => {
+    const ae = labelOf(item.fields.ae);
+    return !ae || ae === "None";
+  });
+
+  const assignedItems = allItems.filter((item: any) => {
+    const ae = labelOf(item.fields.ae);
+    return ae && ae !== "None";
+  });
+
+  const items = assignedItems.filter((item: any) => {
+    const q_ = labelOf(item.fields.quality);
+    const ae_ = labelOf(item.fields.ae);
+    if (filterQuality && q_ !== filterQuality) return false;
+    if (filterAE && ae_ !== filterAE) return false;
+    return true;
+  });
+
+  const handleSort = (field: string) => {
+    if (sortField === field) setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+    else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+  };
+
+  const handleUpdate = (recordId: string, field: string, value: any) => {
+    setSavingId(recordId);
+    try {
+      updateRecord.mutate({ recordId, fields: { [field]: value } });
+    } catch (err: any) {
+      toast.error(`Save error (${field}): ${err?.message ?? "unknown"}`);
+      setSavingId(null);
+    }
+  };
+
+  const activeFilterCount = [filterQuality, filterAE].filter(Boolean).length;
+
+  if (status === "pending") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <span className="inline-block h-6 w-6 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+          <span className="text-sm">Loading leads…</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-destructive text-sm">Error loading leads.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="max-w-5xl mx-auto px-3 sm:px-4 py-6 sm:py-10">
+        <div className="mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+            Inbound Leads
+          </h1>
+          <p className="mt-1.5 text-muted-foreground text-base">
+            Review, qualify, and update every inbound lead — click any row to expand and edit.
+          </p>
+        </div>
+
+        <div className="flex gap-3 mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              ref={searchRef}
+              type="text"
+              placeholder="Search by name, company, email…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 h-12 sm:h-11 text-base sm:text-sm bg-background"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setSearchTerm("")}
+                aria-label="Clear search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          <Button
+            variant={filtersOpen ? "default" : "outline"}
+            onClick={() => setFiltersOpen((v) => !v)}
+            className="h-12 sm:h-11 gap-2 shrink-0"
+            type="button"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="ml-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-xs font-semibold">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
+        </div>
+
+        {filtersOpen && (
+          <div className="mb-4 p-4 rounded-xl border bg-muted/30 animate-in fade-in-0 slide-in-from-top-2 duration-200">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+              <FilterSelect
+                label="Quality"
+                value={filterQuality}
+                options={QUALITY_OPTIONS}
+                onChange={setFilterQuality}
+              />
+              <FilterSelect
+                label="Account Exec"
+                value={filterAE}
+                options={AE_OPTIONS}
+                onChange={setFilterAE}
+              />
+              <FilterSelect
+                label="Sort by"
+                value={sortField ? `${sortField}|${sortOrder}` : ""}
+                options={[
+                  { label: "Date (newest)", value: "date|desc" },
+                  { label: "Date (oldest)", value: "date|asc" },
+                  { label: "Name A→Z", value: "name|asc" },
+                  { label: "Name Z→A", value: "name|desc" },
+                  { label: "Company A→Z", value: "company|asc" },
+                ]}
+                onChange={(v) => {
+                  const [f, o] = v.split("|");
+                  setSortField(f);
+                  setSortOrder((o as "asc" | "desc") ?? "asc");
+                }}
+                isComplex
+              />
+            </div>
+          </div>
+        )}
+
+        {activeFilterCount > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            {filterQuality && (
+              <FilterChip label="Quality" value={filterQuality} onRemove={() => setFilterQuality("")} />
+            )}
+            {filterAE && (
+              <FilterChip label="AE" value={filterAE} onRemove={() => setFilterAE("")} />
+            )}
+            <button
+              type="button"
+              onClick={() => { setFilterQuality(""); setFilterAE(""); }}
+              className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline transition-colors ml-1"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
+
+        <UnassignedSection items={unassignedItems} onUpdate={handleUpdate} savingId={savingId} />
+
+        <div className="flex items-center justify-between mb-3 px-1">
+          <p className="text-xs text-muted-foreground">
+            {items.length} {items.length === 1 ? "lead" : "leads"}
+          </p>
+          <div className="flex items-center gap-4">
+            <SortButton label="Name" field="name" active={sortField === "name"} order={sortOrder} onClick={() => handleSort("name")} />
+            <SortButton label="Company" field="company" active={sortField === "company"} order={sortOrder} onClick={() => handleSort("company")} />
+            <SortButton label="Date" field="date" active={sortField === "date"} order={sortOrder} onClick={() => handleSort("date")} />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {items.map((item: any) => (
+            <LeadCard
+              key={item.id}
+              item={item}
+              onUpdate={handleUpdate}
+              isSaving={savingId === item.id}
+            />
+          ))}
+        </div>
+
+        {items.length === 0 && (
+          <div className="mt-4 rounded-2xl border-2 border-dashed border-border/60 bg-muted/20 p-12 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+              <User className="h-7 w-7 text-primary" />
+            </div>
+            <h2 className="text-xl font-semibold text-foreground mb-2">No leads found</h2>
+            <p className="text-muted-foreground text-sm max-w-sm mx-auto">Try adjusting your search or filters.</p>
+            {(searchTerm || activeFilterCount > 0) && (
+              <Button
+                variant="outline"
+                className="mt-6"
+                onClick={() => { setSearchTerm(""); setFilterQuality(""); setFilterAE(""); }}
+                type="button"
+              >
+                Clear filters
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Filter chip ─────────────────────────────────────────────────────────────
+function FilterChip({ label, value, onRemove }: { label: string; value: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium border border-primary/20">
+      <span className="opacity-70">{label}:</span>
+      <span>{value}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="h-4 w-4 flex items-center justify-center rounded-full hover:bg-primary/20 transition-colors ml-0.5"
+        aria-label={`Remove ${label} filter`}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </span>
+  );
+}
+
+// ─── Filter select ────────────────────────────────────────────────────────────
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[] | { label: string; value: string }[];
+  onChange: (v: string) => void;
+}) {
+  const normalized = options.map((o) => (typeof o === "string" ? { label: o, value: o } : o));
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full h-9 rounded-md border border-input bg-background px-3 pr-8 text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="">All</option>
+          {normalized.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+      </div>
+    </div>
+  );
+}
