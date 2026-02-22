@@ -16,7 +16,6 @@ import {
   Search,
   FileText,
   X,
-  ArrowLeft,
   ArrowUpDown,
   Copy,
   Check,
@@ -123,37 +122,91 @@ const toSubArray = (v: any): string[] => {
   return s ? [s] : [];
 };
 
-const getAttachment = (value: any) =>
-  Array.isArray(value) ? value[0] : value;
-
-const getFileExtension = (asset: any): string => {
-  const filename = String(asset?.filename || "").toLowerCase();
-  if (filename.includes(".")) return filename.split(".").pop() || "";
-  const url = String(asset?.url || "").split("?")[0].toLowerCase();
-  if (url.includes(".")) return url.split(".").pop() || "";
-  return "";
+const getFileExt = (name?: string): string => {
+  if (!name) return "";
+  const parts = name.toLowerCase().split(".");
+  return parts.length > 1 ? parts.pop() || "" : "";
 };
 
-const isImageExtension = (ext: string) =>
-  ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif"].includes(ext);
+const getFileMeta = (file: any, publicLink?: string) => {
+  const f = Array.isArray(file) ? file[0] : file;
+  const url =
+    f?.url ||
+    f?.public_url ||
+    f?.publicUrl ||
+    f?.link ||
+    f?.href ||
+    (typeof f === "string" ? f : "") ||
+    publicLink ||
+    "";
+  const name = f?.name || f?.filename || (typeof f === "string" ? f : publicLink) || "";
+  const type = String(f?.type || f?.mimeType || "").toLowerCase();
+  return { url, name, type };
+};
 
-const getPreviewSource = (fields: any) => {
-  const preview = getAttachment(fields.preview);
-  const file = getAttachment(fields.file);
-  const previewExt = getFileExtension(preview);
-  const fileExt = getFileExtension(file);
-
-  if (preview?.url && isImageExtension(previewExt)) {
-    return { type: "image" as const, url: preview.url, ext: previewExt, file };
+const getPreviewSource = ({
+  preview,
+  file,
+  publicLink,
+  category,
+}: {
+  preview: any;
+  file: any;
+  publicLink?: string;
+  category?: string;
+}) => {
+  if (preview?.url) {
+    return {
+      type: "image" as const,
+      url: preview.url,
+      aspectRatio:
+        preview?.width && preview?.height
+          ? `${preview.width} / ${preview.height}`
+          : category === "One Pager"
+          ? "8.5 / 11"
+          : "4 / 3",
+    };
   }
 
-  const primary = preview?.url ? preview : file;
-  const ext = preview?.url ? previewExt : fileExt;
+  const { url: fileUrl, type: fileType, name: fileName } = getFileMeta(file, publicLink);
+  const fileExt = getFileExt(fileName);
+
+  if (fileUrl) {
+    const isImage =
+      fileType.startsWith("image/") ||
+      ["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(fileExt);
+    if (isImage) {
+      return {
+        type: "image" as const,
+        url: fileUrl,
+        aspectRatio: category === "One Pager" ? "8.5 / 11" : "4 / 3",
+      };
+    }
+
+    const isPdf = fileType.includes("pdf") || fileExt === "pdf";
+    if (isPdf) {
+      return {
+        type: "pdf" as const,
+        url: fileUrl,
+        aspectRatio: "8.5 / 11",
+      };
+    }
+
+    const officeExts = ["ppt", "pptx", "doc", "docx", "xls", "xlsx"];
+    const isOfficeDoc = officeExts.includes(fileExt);
+    if (isOfficeDoc) {
+      return {
+        type: "office" as const,
+        url: `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`,
+        aspectRatio: fileExt.startsWith("ppt") ? "16 / 9" : "4 / 3",
+      };
+    }
+  }
+
   return {
-    type: isImageExtension(ext) ? ("image" as const) : ("document" as const),
-    url: primary?.url || "",
-    ext,
-    file,
+    type: "none" as const,
+    url: "",
+    aspectRatio: category === "One Pager" ? "8.5 / 11" : "4 / 3",
   };
 };
 
@@ -298,49 +351,61 @@ function AssetRow({
 }: {
   item: any;
   onSelect: () => void;
-  onDownload: (file: any) => void;
+  onDownload: (item: any) => void;
 }) {
   const f = item.fields;
-  const previewSource = getPreviewSource(f);
-  const file = getAttachment(f.file);
+  const preview = Array.isArray(f.preview) ? f.preview[0] : f.preview;
+  const file = Array.isArray(f.file) ? f.file[0] : f.file;
   const subcategories = toSubArray(f.subcategories);
   const catLabel = labelOf(f.category);
   const catStyle = getCategoryStyle(catLabel);
   const CatIcon = catStyle.icon;
   const hasLink = !!f.publicLink;
-  const hasFile = !!file?.url;
+  const hasFile = !!getFileMeta(file, f.publicLink).url;
+  const previewSource = getPreviewSource({
+    preview,
+    file,
+    publicLink: f.publicLink,
+    category: catLabel,
+  });
 
   return (
     <div
       role="listitem"
-      className="group rounded-xl border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200 cursor-pointer outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2"
+      className="group rounded-xl border bg-card hover:border-primary/25 transition-all duration-200 cursor-pointer outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2"
       onClick={onSelect}
     >
       {/* Top row: thumbnail | name + badges | action button */}
       <div className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4">
         {/* Thumbnail */}
-        {previewSource.url && previewSource.type === "image" ? (
-          <div className="shrink-0 h-16 w-24 sm:h-20 sm:w-28 rounded-lg overflow-hidden bg-muted">
-            <img
-              src={previewSource.url}
-              alt={f.name || "Asset preview"}
-              className="h-full w-full object-cover group-hover:scale-[1.03] transition-transform duration-500 ease-out"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = "none";
-              }}
-            />
+        {previewSource.type !== "none" ? (
+          <div
+            className="shrink-0 h-16 sm:h-20 rounded-lg overflow-hidden bg-muted max-w-[112px] sm:max-w-[136px]"
+            style={{ aspectRatio: previewSource.aspectRatio }}
+          >
+            {previewSource.type === "image" ? (
+              <img
+                src={previewSource.url}
+                alt={f.name || "Asset preview"}
+                className="h-full w-full object-cover group-hover:scale-[1.03] transition-transform duration-500 ease-out"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
+              />
+            ) : (
+              <div className="h-full w-full flex flex-col items-center justify-center gap-1.5 text-muted-foreground bg-muted/60">
+                <FileText className="h-5 w-5 opacity-70" />
+                <span className="text-[10px] font-medium uppercase tracking-wide">
+                  {previewSource.type === "pdf" ? "PDF" : "Document"}
+                </span>
+              </div>
+            )}
           </div>
         ) : (
           <div
             className={`shrink-0 h-16 w-24 sm:h-20 sm:w-28 rounded-lg border ${catStyle.border} ${catStyle.bg} flex items-center justify-center`}
           >
-            {previewSource.ext === "ppt" || previewSource.ext === "pptx" ? (
-              <Presentation className={`h-6 w-6 sm:h-7 sm:w-7 ${catStyle.text} opacity-70`} />
-            ) : previewSource.ext === "pdf" ? (
-              <FileText className={`h-6 w-6 sm:h-7 sm:w-7 ${catStyle.text} opacity-70`} />
-            ) : (
-              <CatIcon className={`h-6 w-6 sm:h-7 sm:w-7 ${catStyle.text} opacity-70`} />
-            )}
+            <CatIcon className={`h-6 w-6 sm:h-7 sm:w-7 ${catStyle.text} opacity-70`} />
           </div>
         )}
 
@@ -358,18 +423,9 @@ function AssetRow({
                 {catLabel}
               </Badge>
             )}
-            {subcategories.slice(0, 2).map((sub, idx) => (
-              <Badge
-                key={idx}
-                variant="outline"
-                className="text-[11px] text-muted-foreground"
-              >
-                {sub}
-              </Badge>
-            ))}
-            {subcategories.length > 2 && (
+            {subcategories.length > 0 && (
               <span className="text-[11px] text-muted-foreground">
-                +{subcategories.length - 2}
+                {subcategories.join(" · ")}
               </span>
             )}
           </div>
@@ -397,7 +453,7 @@ function AssetRow({
               className="gap-1.5 text-xs font-medium min-h-[36px]"
               onClick={(e) => {
                 e.stopPropagation();
-                onDownload(file);
+                onDownload(item);
               }}
             >
               <Download className="h-3.5 w-3.5" />
@@ -409,12 +465,10 @@ function AssetRow({
 
       {/* Description */}
       {f.description && (
-        <div className="px-3 sm:px-4 pb-3 sm:pb-4 -mt-1">
-          <div className="border-t border-border/40 pt-2.5">
-            <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
-              {f.description}
-            </p>
-          </div>
+        <div className="px-3 sm:px-4 pb-3 sm:pb-3 -mt-1">
+          <p className="text-xs sm:text-sm text-muted-foreground/90 leading-relaxed line-clamp-1">
+            {f.description}
+          </p>
         </div>
       )}
 
@@ -441,7 +495,7 @@ function AssetRow({
               className="flex-1 gap-1.5 text-xs font-medium min-h-[36px]"
               onClick={(e) => {
                 e.stopPropagation();
-                onDownload(file);
+                onDownload(item);
               }}
             >
               <Download className="h-3.5 w-3.5" />
@@ -474,7 +528,7 @@ export default function Block() {
   const [quizAutoApplied, setQuizAutoApplied] = useState(false);
   const quizContainerRef = useRef<HTMLDivElement>(null);
 
-  const { data, status } = useRecords({
+  const { data, status, refetch } = useRecords({
     select,
     orderBy: sortOrder === "asc" ? q.asc(sortField) : q.desc(sortField),
     count: 100,
@@ -484,6 +538,12 @@ export default function Block() {
     () => data?.pages.flatMap((page: any) => page.items) ?? [],
     [data]
   );
+
+  // Always refetch once on page load to refresh expiring monday file URLs.
+  useEffect(() => {
+    refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Derive unique category options from data (future-proof: driven by data)
   const categoryOptions = useMemo(() => {
@@ -569,8 +629,43 @@ export default function Block() {
     setPage(0);
   };
 
-  const handleDownload = (file: any) => {
-    if (file?.url) window.open(file.url, "_blank");
+  const handleDownload = async (itemOrFile: any) => {
+    const fallbackFile = itemOrFile?.fields
+      ? Array.isArray(itemOrFile.fields.file)
+        ? itemOrFile.fields.file[0]
+        : itemOrFile.fields.file
+      : itemOrFile;
+
+    let latestUrl = getFileMeta(fallbackFile).url;
+
+    if (itemOrFile?.id) {
+      try {
+        const refreshed: any = await refetch();
+        const refreshedPages =
+          refreshed?.pages ?? refreshed?.data?.pages ?? data?.pages ?? [];
+        const refreshedItems = refreshedPages.flatMap((page: any) => page.items ?? []);
+        const refreshedItem = refreshedItems.find((x: any) => x.id === itemOrFile.id);
+        const refreshedFile = refreshedItem?.fields
+          ? Array.isArray(refreshedItem.fields.file)
+            ? refreshedItem.fields.file[0]
+            : refreshedItem.fields.file
+          : null;
+
+        const refreshedUrl = getFileMeta(refreshedFile).url;
+        if (refreshedUrl) {
+          latestUrl = refreshedUrl;
+        }
+      } catch {
+        // Fallback to the currently loaded URL if refetch fails.
+      }
+    }
+
+    if (latestUrl) {
+      window.open(latestUrl, "_blank");
+      return;
+    }
+
+    toast.error("Download link is unavailable. Try refreshing the page.");
   };
 
   const copyLink = async (link: string) => {
@@ -706,6 +801,7 @@ export default function Block() {
     return () => document.removeEventListener("keydown", handler);
   }, [quizOpen]);
 
+  // Close asset preview on Escape
   useEffect(() => {
     if (!selectedAsset) return;
     const handler = (e: KeyboardEvent) => {
@@ -714,6 +810,22 @@ export default function Block() {
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [selectedAsset]);
+
+  // Prevent any page/modal scroll while overlays are open
+  useEffect(() => {
+    const lockScroll = quizOpen || !!selectedAsset;
+    if (!lockScroll) return;
+
+    const htmlOverflow = document.documentElement.style.overflow;
+    const bodyOverflow = document.body.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.documentElement.style.overflow = htmlOverflow;
+      document.body.style.overflow = bodyOverflow;
+    };
+  }, [quizOpen, selectedAsset]);
 
   // ─── Active filter chips ──────────────────────────────────────────────────
   const activeFilters: { label: string; value: string; clear: () => void }[] = [
@@ -737,150 +849,32 @@ export default function Block() {
       : []),
   ];
 
-  const selectedAssetModal = selectedAsset ? (() => {
-    const f = selectedAsset.fields;
-    const previewSource = getPreviewSource(f);
-    const file = getAttachment(f.file);
-    const subcategories = toSubArray(f.subcategories);
-    const catLabel = labelOf(f.category);
-    const catStyle = getCategoryStyle(catLabel);
-    const CatIcon = catStyle.icon;
-    const isCopied = copiedLink === f.publicLink;
-    const isPdf = previewSource.ext === "pdf";
-    const isPowerpoint = ["ppt", "pptx"].includes(previewSource.ext);
-    const officeEmbedUrl = previewSource.url
-      ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(previewSource.url)}`
-      : "";
-
-    return (
-      <div
-        className="fixed inset-0 z-50 bg-background/75 backdrop-blur-[1px] p-3 sm:p-6 overflow-y-auto"
-        onClick={() => setSelectedAsset(null)}
-      >
-        <div
-          className="max-w-5xl mx-auto rounded-xl border bg-card overflow-hidden shadow-lg"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b">
-            <button
-              onClick={() => setSelectedAsset(null)}
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground py-1.5 transition-colors duration-200 group outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded"
-            >
-              <ArrowLeft className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />
-              Back to assets
-            </button>
-            <Button variant="ghost" size="icon" onClick={() => setSelectedAsset(null)}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-
-          {previewSource.url ? (
-            <div className="relative bg-muted min-h-[280px]">
-              {previewSource.type === "image" ? (
-                <img
-                  src={previewSource.url}
-                  alt={f.name}
-                  className="w-full max-h-[560px] object-contain mx-auto"
-                />
-              ) : isPdf || isPowerpoint ? (
-                <iframe
-                  src={isPowerpoint ? officeEmbedUrl : previewSource.url}
-                  title={f.name || "Asset preview"}
-                  className="w-full h-[55vh] min-h-[340px]"
-                />
-              ) : (
-                <iframe
-                  src={previewSource.url}
-                  title={f.name || "Asset preview"}
-                  className="w-full h-[55vh] min-h-[340px]"
-                />
-              )}
-            </div>
-          ) : (
-            <div className="h-48 bg-muted/40 flex flex-col items-center justify-center gap-3">
-              <div
-                className={`h-16 w-16 rounded-xl border ${catStyle.border} ${catStyle.bg} flex items-center justify-center`}
-              >
-                <CatIcon className={`h-8 w-8 ${catStyle.text}`} />
-              </div>
-              <span className="text-sm text-muted-foreground/60 font-medium">
-                {catLabel || "Asset"}
-              </span>
-            </div>
-          )}
-
-          <div className="p-5 sm:p-8">
-            <div className="flex flex-wrap items-center gap-2 mb-4">
-              {catLabel && (
-                <Badge
-                  variant="outline"
-                  className={`text-xs font-medium ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}
-                >
-                  {catLabel}
-                </Badge>
-              )}
-              {subcategories.map((sub, idx) => (
-                <Badge key={idx} variant="outline" className="text-xs">
-                  {sub}
-                </Badge>
-              ))}
-            </div>
-
-            <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-3 leading-tight">
-              {f.name || "Untitled Asset"}
-            </h2>
-
-            {f.description && (
-              <p className="text-sm text-muted-foreground leading-relaxed mb-6 max-w-2xl">
-                {f.description}
-              </p>
-            )}
-
-            <div className="flex flex-wrap gap-3 pt-2">
-              {f.publicLink && (
-                <Button
-                  onClick={() => window.open(f.publicLink, "_blank")}
-                  className="gap-2 min-h-[44px]"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  Open Link
-                </Button>
-              )}
-              {file?.url && (
-                <Button
-                  variant="outline"
-                  onClick={() => handleDownload(file)}
-                  className="gap-2 min-h-[44px]"
-                >
-                  <Download className="h-4 w-4" />
-                  Download File
-                </Button>
-              )}
-              {f.publicLink && (
-                <Button
-                  variant="ghost"
-                  onClick={() => copyLink(f.publicLink)}
-                  className={`gap-2 min-h-[44px] transition-all duration-200 ${
-                    isCopied ? "text-emerald-600 hover:text-emerald-700" : ""
-                  }`}
-                >
-                  {isCopied ? (
-                    <>
-                      <Check className="h-4 w-4" /> Copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-4 w-4" /> Copy Link
-                    </>
-                  )}
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  })() : null;
+  const selectedAssetFields = selectedAsset?.fields;
+  const selectedPreview = selectedAssetFields
+    ? Array.isArray(selectedAssetFields.preview)
+      ? selectedAssetFields.preview[0]
+      : selectedAssetFields.preview
+    : null;
+  const selectedFile = selectedAssetFields
+    ? Array.isArray(selectedAssetFields.file)
+      ? selectedAssetFields.file[0]
+      : selectedAssetFields.file
+    : null;
+  const selectedSubcategories = selectedAssetFields
+    ? toSubArray(selectedAssetFields.subcategories)
+    : [];
+  const selectedCatLabel = selectedAssetFields
+    ? labelOf(selectedAssetFields.category)
+    : "";
+  const selectedCatStyle = getCategoryStyle(selectedCatLabel);
+  const SelectedCatIcon = selectedCatStyle.icon;
+  const isSelectedCopied = copiedLink === selectedAssetFields?.publicLink;
+  const selectedPreviewSource = getPreviewSource({
+    preview: selectedPreview,
+    file: selectedFile,
+    publicLink: selectedAssetFields?.publicLink,
+    category: selectedCatLabel,
+  });
 
   // ─── List View ────────────────────────────────────────────────────────────
   if (status === "pending") {
@@ -943,20 +937,7 @@ export default function Block() {
                 View, download, and share Bectran marketing materials.
               </p>
             </div>
-            <a
-              href="https://wkf.ms/4mJslYK"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0"
-            >
-              <Button className="gap-2 hidden sm:inline-flex">
-                <ExternalLink className="h-4 w-4" />
-                Request New Asset
-              </Button>
-              <Button size="icon" className="h-10 w-10 sm:hidden">
-                <ExternalLink className="h-4 w-4" />
-              </Button>
-            </a>
+
           </div>
         </div>
 
@@ -984,7 +965,7 @@ export default function Block() {
             )}
           </div>
           <Button
-            variant={filtersOpen ? "default" : "outline"}
+            variant={filtersOpen ? "secondary" : "outline"}
             onClick={() => setFiltersOpen((v) => !v)}
             className="h-12 sm:h-11 gap-2 shrink-0"
             type="button"
@@ -1002,7 +983,7 @@ export default function Block() {
           <Button
             variant="outline"
             onClick={openQuiz}
-            className="h-12 sm:h-11 gap-2 shrink-0 border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/60"
+            className="h-12 sm:h-11 gap-2 shrink-0 text-muted-foreground"
           >
             <Wand2 className="h-4 w-4" />
             <span className="hidden sm:inline">Find by Quiz</span>
@@ -1395,7 +1376,143 @@ export default function Block() {
           </div>
         )}
 
-        {selectedAssetModal}
+        {/* ── Asset Preview Modal ─────────────────────────────────────────── */}
+        {selectedAssetFields && (
+          <div className="fixed inset-0 z-50">
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in-0 duration-150"
+              onClick={() => setSelectedAsset(null)}
+              aria-hidden="true"
+            />
+
+            <div className="absolute inset-0 flex items-center justify-center p-4">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label={selectedAssetFields.name || "Asset preview"}
+                className="w-full max-w-5xl rounded-2xl bg-background shadow-2xl border border-border outline-none animate-in fade-in-0 zoom-in-95 duration-200 overflow-hidden flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-border/60">
+                  <h2 className="text-base sm:text-lg font-semibold text-foreground truncate">
+                    {selectedAssetFields.name || "Untitled Asset"}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAsset(null)}
+                    className="h-9 w-9 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Close preview"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="p-5 sm:p-6 overflow-hidden">
+                  {selectedPreviewSource.type !== "none" ? (
+                    <div className="w-full rounded-xl border bg-muted/40 p-3 sm:p-4 mb-5">
+                      <div
+                        className="mx-auto max-h-[52vh] w-auto"
+                        style={{ aspectRatio: selectedPreviewSource.aspectRatio }}
+                      >
+                        {selectedPreviewSource.type === "image" ? (
+                          <img
+                            src={selectedPreviewSource.url}
+                            alt={selectedPreview?.filename || selectedAssetFields.name}
+                            className="h-full w-full object-contain rounded-lg"
+                          />
+                        ) : selectedPreviewSource.type === "pdf" ? (
+                          <iframe
+                            title={selectedAssetFields.name || "Asset preview"}
+                            src={`${selectedPreviewSource.url}#page=1&zoom=page-fit&toolbar=0&navpanes=0&scrollbar=0`}
+                            className="h-full w-full rounded-lg border-0"
+                          />
+                        ) : selectedPreviewSource.type === "office" ? (
+                          <iframe
+                            title={selectedAssetFields.name || "Asset preview"}
+                            src={selectedPreviewSource.url}
+                            className="h-full w-full rounded-lg border-0"
+                          />
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-56 bg-muted/40 rounded-xl border flex flex-col items-center justify-center gap-3 mb-5">
+                      <div
+                        className={`h-16 w-16 rounded-xl border ${selectedCatStyle.border} ${selectedCatStyle.bg} flex items-center justify-center`}
+                      >
+                        <SelectedCatIcon className={`h-8 w-8 ${selectedCatStyle.text}`} />
+                      </div>
+                      <span className="text-sm text-muted-foreground/60 font-medium">
+                        {selectedCatLabel || "Asset"}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2 mb-3">
+                    {selectedCatLabel && (
+                      <Badge
+                        variant="outline"
+                        className={`text-xs font-medium ${selectedCatStyle.bg} ${selectedCatStyle.text} ${selectedCatStyle.border}`}
+                      >
+                        {selectedCatLabel}
+                      </Badge>
+                    )}
+                    {selectedSubcategories.map((sub, idx) => (
+                      <Badge key={idx} variant="outline" className="text-xs">
+                        {sub}
+                      </Badge>
+                    ))}
+                  </div>
+
+                  {selectedAssetFields.description && (
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-5 line-clamp-3">
+                      {selectedAssetFields.description}
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap gap-3">
+                    {selectedAssetFields.publicLink && (
+                      <Button
+                        onClick={() => window.open(selectedAssetFields.publicLink, "_blank")}
+                        className="gap-2 min-h-[42px]"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Open Link
+                      </Button>
+                    )}
+                    {getFileMeta(selectedFile, selectedAssetFields?.publicLink).url && (
+                      <Button
+                        variant="outline"
+                        onClick={() => handleDownload(selectedAsset)}
+                        className="gap-2 min-h-[42px]"
+                      >
+                        <Download className="h-4 w-4" />
+                        Download File
+                      </Button>
+                    )}
+                    {selectedAssetFields.publicLink && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => copyLink(selectedAssetFields.publicLink)}
+                        className={`gap-2 min-h-[42px] ${isSelectedCopied ? "text-emerald-600 hover:text-emerald-700" : ""}`}
+                      >
+                        {isSelectedCopied ? (
+                          <>
+                            <Check className="h-4 w-4" /> Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-4 w-4" /> Copy Link
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
