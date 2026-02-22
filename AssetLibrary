@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRecords, q } from "@/lib/datasource";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -51,6 +52,7 @@ const select = q.select({
   publicLink: "link_mkxpb4bj",
   preview: "file_mkxrymhj",
   description: "text_mkyre4bw",
+  datePublished: "date",
 });
 
 // ─── Category styling ──────────────────────────────────────────────────────────
@@ -76,6 +78,15 @@ const CATEGORY_CONFIG: Record<
   Headshot:       { bg: "bg-pink-500/10",     text: "text-pink-700 dark:text-pink-300",    border: "border-pink-500/20",    dot: "bg-pink-500",    icon: User },
 };
 
+// Fallback palette for categories not in CATEGORY_CONFIG (future-proof)
+const FALLBACK_COLORS = [
+  { bg: "bg-teal-500/10",   text: "text-teal-700 dark:text-teal-300",   border: "border-teal-500/20",   dot: "bg-teal-500" },
+  { bg: "bg-lime-500/10",   text: "text-lime-700 dark:text-lime-300",   border: "border-lime-500/20",   dot: "bg-lime-500" },
+  { bg: "bg-fuchsia-500/10", text: "text-fuchsia-700 dark:text-fuchsia-300", border: "border-fuchsia-500/20", dot: "bg-fuchsia-500" },
+  { bg: "bg-yellow-500/10", text: "text-yellow-700 dark:text-yellow-300", border: "border-yellow-500/20", dot: "bg-yellow-500" },
+  { bg: "bg-red-500/10",    text: "text-red-700 dark:text-red-300",     border: "border-red-500/20",    dot: "bg-red-500" },
+];
+
 const DEFAULT_CATEGORY = {
   bg: "bg-muted",
   text: "text-muted-foreground",
@@ -84,8 +95,19 @@ const DEFAULT_CATEGORY = {
   icon: FileText,
 };
 
-const getCategoryStyle = (label?: string) =>
-  label ? CATEGORY_CONFIG[label] ?? DEFAULT_CATEGORY : DEFAULT_CATEGORY;
+const dynamicCategoryCache = new Map<string, typeof DEFAULT_CATEGORY>();
+
+const getCategoryStyle = (label?: string) => {
+  if (!label) return DEFAULT_CATEGORY;
+  if (CATEGORY_CONFIG[label]) return CATEGORY_CONFIG[label];
+  // Deterministic fallback color for unknown categories
+  if (dynamicCategoryCache.has(label)) return dynamicCategoryCache.get(label)!;
+  const hash = Array.from(label).reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const palette = FALLBACK_COLORS[hash % FALLBACK_COLORS.length];
+  const entry = { ...palette, icon: FileText };
+  dynamicCategoryCache.set(label, entry);
+  return entry;
+};
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 const labelOf = (v: any): string => {
@@ -100,6 +122,31 @@ const toSubArray = (v: any): string[] => {
   const s = labelOf(v);
   return s ? [s] : [];
 };
+
+// ─── Quiz config ──────────────────────────────────────────────────────────────
+type QuizId = "category" | "subcategory";
+
+const quizQuestions: Array<{
+  id: QuizId;
+  title: string;
+  subtitle: string;
+  chipLabel: string;
+  optional?: boolean;
+}> = [
+  {
+    id: "category",
+    title: "What type of asset do you need?",
+    subtitle: "Select the content format",
+    chipLabel: "Type",
+  },
+  {
+    id: "subcategory",
+    title: "What topic area?",
+    subtitle: "Narrow down by subject matter",
+    chipLabel: "Topic",
+    optional: true,
+  },
+];
 
 // ─── Clearable select (matches MessagingLibrary pattern) ───────────────────────
 function ClearableSelect({
@@ -380,6 +427,13 @@ export default function Block() {
   const [page, setPage] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // Quiz state
+  const [quizOpen, setQuizOpen] = useState(false);
+  const [quizStep, setQuizStep] = useState(0);
+  const [quizAnswers, setQuizAnswers] = useState<Partial<Record<QuizId, string>>>({});
+  const [quizAutoApplied, setQuizAutoApplied] = useState(false);
+  const quizContainerRef = useRef<HTMLDivElement>(null);
+
   const { data, status } = useRecords({
     select,
     orderBy: sortOrder === "asc" ? q.asc(sortField) : q.desc(sortField),
@@ -391,7 +445,7 @@ export default function Block() {
     [data]
   );
 
-  // Derive unique category options from data
+  // Derive unique category options from data (future-proof: driven by data)
   const categoryOptions = useMemo(() => {
     const set = new Set<string>();
     items.forEach((item: any) => {
@@ -401,14 +455,24 @@ export default function Block() {
     return Array.from(set).sort();
   }, [items]);
 
-  // Derive unique subcategory options from data
+  // Derive subcategory options — filtered by selected category when one is active
   const subcategoryOptions = useMemo(() => {
     const set = new Set<string>();
-    items.forEach((item: any) => {
+    const source = selectedCategory
+      ? items.filter((item: any) => labelOf(item.fields.category) === selectedCategory)
+      : items;
+    source.forEach((item: any) => {
       toSubArray(item.fields.subcategories).forEach((s) => set.add(s));
     });
     return Array.from(set).sort();
-  }, [items]);
+  }, [items, selectedCategory]);
+
+  // When category changes, clear subcategory if it's no longer valid
+  useEffect(() => {
+    if (selectedSubcategory && !subcategoryOptions.includes(selectedSubcategory)) {
+      setSelectedSubcategory("");
+    }
+  }, [subcategoryOptions, selectedSubcategory]);
 
   // Filter items
   const filteredItems = useMemo(() => {
@@ -460,7 +524,7 @@ export default function Block() {
       setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
     } else {
       setSortField(field);
-      setSortOrder("asc");
+      setSortOrder(field === "datePublished" ? "desc" : "asc");
     }
     setPage(0);
   };
@@ -479,6 +543,128 @@ export default function Block() {
       toast.error("Failed to copy link");
     }
   };
+
+  // ─── Quiz logic ─────────────────────────────────────────────────────────────
+  const getQuizFieldValues = (item: any, qId: QuizId): string[] => {
+    if (qId === "category") {
+      const label = labelOf(item.fields.category);
+      return label ? [label] : [];
+    }
+    return toSubArray(item.fields.subcategories);
+  };
+
+  const computeQuizFilteredRecords = (excludeId: QuizId | null = null) => {
+    let filtered = [...items];
+    quizQuestions.forEach((qq) => {
+      if (excludeId && qq.id === excludeId) return;
+      const selectedVal = quizAnswers[qq.id];
+      if (!selectedVal) return;
+      filtered = filtered.filter((item) => {
+        return getQuizFieldValues(item, qq.id).some(
+          (x) => x.toLowerCase() === selectedVal.toLowerCase()
+        );
+      });
+    });
+    return filtered;
+  };
+
+  const quizFilteredRecords = useMemo(
+    () => computeQuizFilteredRecords(null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, quizAnswers]
+  );
+
+  const quizAnswerCount = Object.values(quizAnswers).filter(Boolean).length;
+
+  const computeQuizOptionsForStep = (stepIndex: number) => {
+    const question = quizQuestions[stepIndex];
+    const base = computeQuizFilteredRecords(question.id);
+    const unique = new Map<string, string>();
+    base.forEach((item) => {
+      getQuizFieldValues(item, question.id).forEach((val) => {
+        const label = String(val || "").trim();
+        if (!label) return;
+        const lower = label.toLowerCase();
+        if (!unique.has(lower)) unique.set(lower, label);
+      });
+    });
+    return Array.from(unique.values()).sort((a, b) => a.localeCompare(b));
+  };
+
+  const currentQuizQuestion = quizQuestions[quizStep];
+  const currentQuizOptions = useMemo(() => {
+    if (!quizOpen || status !== "success" || !currentQuizQuestion) return [];
+    return computeQuizOptionsForStep(quizStep);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quizOpen, status, quizStep, items, quizAnswers]);
+
+  useEffect(() => {
+    if (!quizOpen || status !== "success" || !currentQuizQuestion) return;
+    const opts = currentQuizOptions;
+
+    if (opts.length === 0) {
+      if (quizStep < quizQuestions.length - 1) setQuizStep((s) => s + 1);
+      return;
+    }
+    const already = quizAnswers[currentQuizQuestion.id];
+    if (!already && opts.length === 1) {
+      setQuizAnswers((prev) => ({ ...prev, [currentQuizQuestion.id]: opts[0] }));
+      return;
+    }
+    if (quizFilteredRecords.length === 1 && !quizAutoApplied) {
+      applyQuizNow();
+      setQuizAutoApplied(true);
+      setQuizOpen(false);
+      return;
+    }
+    if (already && quizStep < quizQuestions.length - 1) {
+      setQuizStep((s) => s + 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quizOpen, status, quizStep, currentQuizOptions, quizAnswers, quizFilteredRecords]);
+
+  const openQuiz = () => {
+    setQuizAnswers({});
+    setQuizStep(0);
+    setQuizAutoApplied(false);
+    setQuizOpen(true);
+    setTimeout(() => quizContainerRef.current?.focus(), 0);
+  };
+
+  const closeQuiz = () => setQuizOpen(false);
+
+  const applyQuizNow = () => {
+    setSelectedCategory(quizAnswers.category || "");
+    setSelectedSubcategory(quizAnswers.subcategory || "");
+    setQuizOpen(false);
+    setPage(0);
+  };
+
+  const quizSelectAnswer = (opt: string) => {
+    setQuizAnswers((prev) => ({ ...prev, [currentQuizQuestion.id]: opt }));
+  };
+
+  const quizBack = () => {
+    if (quizStep > 0) setQuizStep((s) => s - 1);
+  };
+
+  const quizSkip = () => {
+    if (quizStep < quizQuestions.length - 1) {
+      setQuizStep((s) => s + 1);
+    } else {
+      applyQuizNow();
+    }
+  };
+
+  // Close quiz on Escape
+  useEffect(() => {
+    if (!quizOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeQuiz();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [quizOpen]);
 
   // ─── Active filter chips ──────────────────────────────────────────────────
   const activeFilters: { label: string; value: string; clear: () => void }[] = [
@@ -707,7 +893,7 @@ export default function Block() {
           </div>
         </div>
 
-        {/* ── Search + Filters toggle ─────────────────────────────────────── */}
+        {/* ── Search + Filters toggle + Quiz CTA ───────────────────────────── */}
         <div className="flex gap-3 mb-4">
           <div className="relative flex-1">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -737,12 +923,22 @@ export default function Block() {
             type="button"
           >
             <SlidersHorizontal className="h-4 w-4" />
-            Filters
+            <span className="hidden sm:inline">Filters</span>
             {activeFilterCount > 0 && (
               <span className="ml-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-xs font-semibold">
                 {activeFilterCount}
               </span>
             )}
+          </Button>
+
+          {/* Quiz CTA */}
+          <Button
+            variant="outline"
+            onClick={openQuiz}
+            className="h-12 sm:h-11 gap-2 shrink-0 border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/60"
+          >
+            <Wand2 className="h-4 w-4" />
+            <span className="hidden sm:inline">Find by Quiz</span>
           </Button>
         </div>
 
@@ -764,7 +960,7 @@ export default function Block() {
                 onChange={(v) => { setSelectedSubcategory(v); setPage(0); }}
                 onClear={() => { setSelectedSubcategory(""); setPage(0); }}
                 options={subcategoryOptions}
-                placeholder="All subcategories"
+                placeholder={selectedCategory ? `Topics in ${selectedCategory}` : "All subcategories"}
               />
             </div>
           </div>
@@ -823,6 +1019,13 @@ export default function Block() {
               order={sortOrder}
               onClick={() => handleSort("category")}
             />
+            <SortButton
+              label="Date"
+              field="datePublished"
+              active={sortField === "datePublished"}
+              order={sortOrder}
+              onClick={() => handleSort("datePublished")}
+            />
           </div>
         </div>
 
@@ -843,6 +1046,14 @@ export default function Block() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               <Button variant="outline" onClick={clearAllFilters}>
                 Clear filters
+              </Button>
+              <Button
+                variant="outline"
+                onClick={openQuiz}
+                className="gap-2 border-primary/30 text-primary hover:bg-primary/5"
+              >
+                <Wand2 className="h-4 w-4" />
+                Try the Quiz
               </Button>
               <a
                 href="https://wkf.ms/4mJslYK"
@@ -874,7 +1085,7 @@ export default function Block() {
 
             {/* ── Pagination controls ──────────────────────────────────────── */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 mt-6">
+              <nav aria-label="Pagination" className="flex items-center justify-center gap-2 mt-6">
                 <Button
                   variant="outline"
                   size="sm"
@@ -913,6 +1124,7 @@ export default function Block() {
                           key={item}
                           type="button"
                           onClick={() => setPage(item)}
+                          aria-current={safePage === item ? "page" : undefined}
                           className={`h-9 min-w-[36px] px-2 rounded-lg text-sm font-medium transition-colors ${
                             safePage === item
                               ? "bg-primary text-primary-foreground shadow-sm"
@@ -936,9 +1148,184 @@ export default function Block() {
                   Next
                   <ChevronRight className="h-4 w-4" />
                 </Button>
-              </div>
+              </nav>
             )}
           </>
+        )}
+
+        {/* ── Quiz Modal ──────────────────────────────────────────────────── */}
+        {quizOpen && (
+          <div className="fixed inset-0 z-50">
+            {/* Backdrop */}
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in-0 duration-150"
+              onClick={closeQuiz}
+              aria-hidden="true"
+            />
+
+            {/* Modal */}
+            <div className="absolute inset-0 flex items-center justify-center p-4">
+              <div
+                ref={quizContainerRef}
+                tabIndex={-1}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Find the right asset"
+                className="w-full max-w-xl rounded-2xl bg-background shadow-2xl border border-border outline-none animate-in fade-in-0 zoom-in-95 duration-200 overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Progress bar */}
+                <div className="h-1 w-full bg-muted">
+                  <div
+                    className="h-full bg-primary transition-all duration-300"
+                    style={{ width: `${((quizStep + 1) / quizQuestions.length) * 100}%` }}
+                  />
+                </div>
+
+                {/* Header */}
+                <div className="px-6 pt-5 pb-4 border-b border-border/60">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                          Step {quizStep + 1} of {quizQuestions.length}
+                        </span>
+                        {quizFilteredRecords.length > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/20 text-xs font-medium">
+                            <span className="font-bold">{quizFilteredRecords.length}</span> match{quizFilteredRecords.length !== 1 ? "es" : ""}
+                          </span>
+                        )}
+                      </div>
+                      <h2 className="text-xl font-bold text-foreground">Find the right asset</h2>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={closeQuiz}
+                      className="h-9 w-9 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label="Close"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  {/* Selection chips */}
+                  {quizAnswerCount > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-3">
+                      {quizQuestions.map((qq) => {
+                        const v = quizAnswers[qq.id];
+                        if (!v) return null;
+                        return (
+                          <span
+                            key={qq.id}
+                            className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs"
+                          >
+                            <span className="text-muted-foreground">{qq.chipLabel}:</span>
+                            <span className="font-semibold text-primary">{v}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setQuizAnswers((prev) => { const n = { ...prev }; delete (n as any)[qq.id]; return n; });
+                                const idx = quizQuestions.findIndex((x) => x.id === qq.id);
+                                if (idx >= 0) setQuizStep(idx);
+                              }}
+                              className="h-5 w-5 flex items-center justify-center rounded-full hover:bg-primary/20 active:bg-primary/30 text-primary transition-colors"
+                              aria-label={`Clear ${qq.chipLabel}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Body */}
+                <div className="px-6 py-6">
+                  <div className="mb-5">
+                    <h3 className="text-2xl font-bold text-foreground">{currentQuizQuestion?.title}</h3>
+                    {currentQuizQuestion?.subtitle && (
+                      <p className="text-sm text-muted-foreground mt-1">{currentQuizQuestion.subtitle}</p>
+                    )}
+                    {currentQuizQuestion?.optional && (
+                      <span className="inline-block mt-2 text-xs text-muted-foreground border border-border/60 px-2 py-0.5 rounded-full">
+                        Optional
+                      </span>
+                    )}
+                  </div>
+
+                  {status === "pending" ? (
+                    <div className="space-y-2">
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} className="h-14 rounded-xl bg-muted animate-pulse" />
+                      ))}
+                    </div>
+                  ) : !Array.isArray(currentQuizOptions) || currentQuizOptions.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground text-sm">
+                      No options available — skipping this step...
+                    </div>
+                  ) : (
+                    <div className="grid gap-2 max-h-[50vh] overflow-y-auto">
+                      {currentQuizOptions.map((opt) => {
+                        const isSelected = quizAnswers[currentQuizQuestion.id] === opt;
+                        return (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => quizSelectAnswer(opt)}
+                            className={`w-full text-left px-4 py-3.5 rounded-xl border text-sm font-medium transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 active:scale-[0.98] min-h-[44px]
+                              ${isSelected
+                                ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/30"
+                                : "border-border bg-background text-foreground hover:border-primary/40 hover:bg-muted/40"
+                              }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span>{opt}</span>
+                              {isSelected && (
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                                  <Check className="h-3 w-3" />
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 py-4 border-t border-border/60 bg-muted/20 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={quizBack} disabled={quizStep === 0} className="gap-1.5">
+                      <ChevronLeft className="h-4 w-4" />
+                      Back
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setQuizAnswers({}); setQuizStep(0); setQuizAutoApplied(false); }}
+                      className="text-muted-foreground"
+                    >
+                      Reset
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {quizAnswerCount > 0 && (
+                      <Button variant="outline" size="sm" onClick={applyQuizNow} className="border-primary/30 text-primary hover:bg-primary/5">
+                        Apply filters
+                      </Button>
+                    )}
+                    <Button size="sm" onClick={quizSkip} className="gap-1.5">
+                      {quizStep === quizQuestions.length - 1 ? "Finish" : "Skip"}
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
