@@ -17,6 +17,7 @@ import {
   FileText,
   X,
   ArrowLeft,
+  ArrowUpDown,
   Copy,
   Check,
   FolderOpen,
@@ -36,6 +37,8 @@ import {
   FileSpreadsheet,
   Presentation,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -171,6 +174,40 @@ const SkeletonRow = () => (
     </div>
   </div>
 );
+
+const PAGE_SIZE = 15;
+
+// ─── Sort button (matches InboundLeads pattern) ────────────────────────────────
+function SortButton({
+  label,
+  field,
+  active,
+  order,
+  onClick,
+}: {
+  label: string;
+  field: string;
+  active: boolean;
+  order: "asc" | "desc";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-1 text-xs font-medium transition-colors hover:text-foreground ${
+        active ? "text-primary" : "text-muted-foreground"
+      }`}
+    >
+      {label}
+      <ArrowUpDown
+        className={`h-3 w-3 ${
+          active ? "text-primary" : "text-muted-foreground/40"
+        }`}
+      />
+    </button>
+  );
+}
 
 // ─── Asset row ─────────────────────────────────────────────────────────────────
 function AssetRow({
@@ -338,10 +375,16 @@ export default function Block() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<any>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+  const [sortField, setSortField] = useState<string>("name");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [page, setPage] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const { data, status, hasNextPage, fetchNextPage, isFetchingNextPage } =
-    useRecords({ select, count: 50 });
+  const { data, status } = useRecords({
+    select,
+    orderBy: sortOrder === "asc" ? q.asc(sortField) : q.desc(sortField),
+    count: 100,
+  });
 
   const items = useMemo(
     () => data?.pages.flatMap((page: any) => page.items) ?? [],
@@ -391,6 +434,15 @@ export default function Block() {
     });
   }, [items, searchTerm, selectedCategory, selectedSubcategory]);
 
+  // Pagination
+  const totalFiltered = filteredItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const pagedItems = filteredItems.slice(
+    safePage * PAGE_SIZE,
+    safePage * PAGE_SIZE + PAGE_SIZE
+  );
+
   const activeFilterCount = [selectedCategory, selectedSubcategory].filter(
     Boolean
   ).length;
@@ -400,6 +452,17 @@ export default function Block() {
     setSearchTerm("");
     setSelectedCategory("");
     setSelectedSubcategory("");
+    setPage(0);
+  };
+
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+    setPage(0);
   };
 
   const handleDownload = (file: any) => {
@@ -424,7 +487,7 @@ export default function Block() {
           {
             label: "Category",
             value: selectedCategory,
-            clear: () => setSelectedCategory(""),
+            clear: () => { setSelectedCategory(""); setPage(0); },
           },
         ]
       : []),
@@ -433,7 +496,7 @@ export default function Block() {
           {
             label: "Subcategory",
             value: selectedSubcategory,
-            clear: () => setSelectedSubcategory(""),
+            clear: () => { setSelectedSubcategory(""); setPage(0); },
           },
         ]
       : []),
@@ -653,14 +716,14 @@ export default function Block() {
               type="text"
               placeholder="Search by name, category, or description..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => { setSearchTerm(e.target.value); setPage(0); }}
               className="pl-10 h-12 sm:h-11 text-base sm:text-sm bg-background"
             />
             {searchTerm && (
               <button
                 type="button"
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                onClick={() => setSearchTerm("")}
+                onClick={() => { setSearchTerm(""); setPage(0); }}
                 aria-label="Clear search"
               >
                 <X className="h-4 w-4" />
@@ -690,16 +753,16 @@ export default function Block() {
               <ClearableSelect
                 label="Category (Type)"
                 value={selectedCategory}
-                onChange={(v) => setSelectedCategory(v)}
-                onClear={() => setSelectedCategory("")}
+                onChange={(v) => { setSelectedCategory(v); setPage(0); }}
+                onClear={() => { setSelectedCategory(""); setPage(0); }}
                 options={categoryOptions}
                 placeholder="All categories"
               />
               <ClearableSelect
                 label="Subcategory (Topic)"
                 value={selectedSubcategory}
-                onChange={(v) => setSelectedSubcategory(v)}
-                onClear={() => setSelectedSubcategory("")}
+                onChange={(v) => { setSelectedSubcategory(v); setPage(0); }}
+                onClear={() => { setSelectedSubcategory(""); setPage(0); }}
                 options={subcategoryOptions}
                 placeholder="All subcategories"
               />
@@ -735,27 +798,36 @@ export default function Block() {
           </div>
         )}
 
-        {/* ── Results header ──────────────────────────────────────────────── */}
+        {/* ── Results header + sort ────────────────────────────────────── */}
         <div className="flex items-center justify-between mb-3 px-1">
           <p className="text-xs text-muted-foreground">
-            {filteredItems.length}{" "}
-            {filteredItems.length === 1 ? "asset" : "assets"}
+            {totalFiltered} {totalFiltered === 1 ? "asset" : "assets"}
+            {totalPages > 1 && (
+              <span>
+                {" · "}page {safePage + 1} of {totalPages}
+              </span>
+            )}
           </p>
-          {hasActiveFilters && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={clearAllFilters}
-              className="text-muted-foreground gap-1.5 h-7 text-xs"
-            >
-              <X className="h-3 w-3" />
-              Reset
-            </Button>
-          )}
+          <div className="flex items-center gap-4">
+            <SortButton
+              label="Name"
+              field="name"
+              active={sortField === "name"}
+              order={sortOrder}
+              onClick={() => handleSort("name")}
+            />
+            <SortButton
+              label="Category"
+              field="category"
+              active={sortField === "category"}
+              order={sortOrder}
+              onClick={() => handleSort("category")}
+            />
+          </div>
         </div>
 
         {/* ── Asset List ──────────────────────────────────────────────────── */}
-        {filteredItems.length === 0 ? (
+        {totalFiltered === 0 ? (
           <div className="mt-4 rounded-2xl border-2 border-dashed border-border/60 bg-muted/20 p-12 text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
               <FolderOpen className="h-7 w-7 text-primary" />
@@ -788,37 +860,85 @@ export default function Block() {
             </div>
           </div>
         ) : (
-          <div className="space-y-2" role="list" aria-label="Asset library">
-            {filteredItems.map((item: any) => (
-              <AssetRow
-                key={item.id}
-                item={item}
-                onSelect={() => setSelectedAsset(item)}
-                onDownload={handleDownload}
-              />
-            ))}
-          </div>
-        )}
+          <>
+            <div className="space-y-2" role="list" aria-label="Asset library">
+              {pagedItems.map((item: any) => (
+                <AssetRow
+                  key={item.id}
+                  item={item}
+                  onSelect={() => setSelectedAsset(item)}
+                  onDownload={handleDownload}
+                />
+              ))}
+            </div>
 
-        {/* ── Load More ───────────────────────────────────────────────────── */}
-        {hasNextPage && filteredItems.length > 0 && (
-          <div className="flex justify-center mt-8">
-            <Button
-              variant="outline"
-              onClick={() => fetchNextPage()}
-              disabled={isFetchingNextPage}
-              className="gap-2 min-h-[44px]"
-            >
-              {isFetchingNextPage ? (
-                <>
-                  <span className="inline-block h-4 w-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
-                  Loading...
-                </>
-              ) : (
-                "Load More Assets"
-              )}
-            </Button>
-          </div>
+            {/* ── Pagination controls ──────────────────────────────────────── */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 mt-6">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={safePage === 0}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  className="gap-1.5 h-9"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPages }, (_, i) => i)
+                    .filter((i) => {
+                      if (totalPages <= 7) return true;
+                      if (i === 0 || i === totalPages - 1) return true;
+                      if (Math.abs(i - safePage) <= 1) return true;
+                      return false;
+                    })
+                    .reduce<(number | "ellipsis")[]>((acc, i, idx, arr) => {
+                      if (idx > 0 && i - (arr[idx - 1] as number) > 1) {
+                        acc.push("ellipsis");
+                      }
+                      acc.push(i);
+                      return acc;
+                    }, [])
+                    .map((item, idx) =>
+                      item === "ellipsis" ? (
+                        <span
+                          key={`ellipsis-${idx}`}
+                          className="px-1 text-xs text-muted-foreground"
+                        >
+                          ...
+                        </span>
+                      ) : (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => setPage(item)}
+                          className={`h-9 min-w-[36px] px-2 rounded-lg text-sm font-medium transition-colors ${
+                            safePage === item
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                          }`}
+                        >
+                          {item + 1}
+                        </button>
+                      )
+                    )}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={safePage >= totalPages - 1}
+                  onClick={() =>
+                    setPage((p) => Math.min(totalPages - 1, p + 1))
+                  }
+                  className="gap-1.5 h-9"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
