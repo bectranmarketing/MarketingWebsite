@@ -10,13 +10,28 @@ import {
   Search,
   FileText,
   X,
-  SlidersHorizontal,
   Eye,
   Layers,
   ArrowLeft,
   Copy,
   Check,
   FolderOpen,
+  ChevronRight,
+  FileImage,
+  FileVideo,
+  FileSpreadsheet,
+  Presentation,
+  BookOpen,
+  Mail,
+  Image,
+  Shield,
+  BarChart3,
+  FileCode,
+  User,
+  Package,
+  Target,
+  ScrollText,
+  Film,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,27 +46,36 @@ const select = q.select({
   description: "text_mkyre4bw",
 });
 
-// ─── Category config with dark-mode-safe tokens ────────────────────────────────
-const CATEGORY_CONFIG: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-  "Case Study":   { bg: "bg-blue-50 dark:bg-blue-950/40", text: "text-blue-700 dark:text-blue-300", border: "border-blue-200 dark:border-blue-800", dot: "bg-blue-500" },
-  "One Pager":    { bg: "bg-violet-50 dark:bg-violet-950/40", text: "text-violet-700 dark:text-violet-300", border: "border-violet-200 dark:border-violet-800", dot: "bg-violet-500" },
-  "White Paper":  { bg: "bg-slate-50 dark:bg-slate-900/40", text: "text-slate-700 dark:text-slate-300", border: "border-slate-200 dark:border-slate-700", dot: "bg-slate-500" },
-  Presentation:   { bg: "bg-amber-50 dark:bg-amber-950/40", text: "text-amber-700 dark:text-amber-300", border: "border-amber-200 dark:border-amber-800", dot: "bg-amber-500" },
-  "API Document": { bg: "bg-sky-50 dark:bg-sky-950/40", text: "text-sky-700 dark:text-sky-300", border: "border-sky-200 dark:border-sky-800", dot: "bg-sky-500" },
-  Email:          { bg: "bg-pink-50 dark:bg-pink-950/40", text: "text-pink-700 dark:text-pink-300", border: "border-pink-200 dark:border-pink-800", dot: "bg-pink-500" },
-  Logo:           { bg: "bg-indigo-50 dark:bg-indigo-950/40", text: "text-indigo-700 dark:text-indigo-300", border: "border-indigo-200 dark:border-indigo-800", dot: "bg-indigo-500" },
-  Policy:         { bg: "bg-slate-50 dark:bg-slate-900/40", text: "text-slate-700 dark:text-slate-300", border: "border-slate-200 dark:border-slate-700", dot: "bg-slate-500" },
-  Infographic:    { bg: "bg-cyan-50 dark:bg-cyan-950/40", text: "text-cyan-700 dark:text-cyan-300", border: "border-cyan-200 dark:border-cyan-800", dot: "bg-cyan-500" },
-  Brochure:       { bg: "bg-amber-50 dark:bg-amber-950/40", text: "text-amber-700 dark:text-amber-300", border: "border-amber-200 dark:border-amber-800", dot: "bg-amber-500" },
-  Template:       { bg: "bg-emerald-50 dark:bg-emerald-950/40", text: "text-emerald-700 dark:text-emerald-300", border: "border-emerald-200 dark:border-emerald-800", dot: "bg-emerald-500" },
-  Video:          { bg: "bg-rose-50 dark:bg-rose-950/40", text: "text-rose-700 dark:text-rose-300", border: "border-rose-200 dark:border-rose-800", dot: "bg-rose-500" },
-  Prospecting:    { bg: "bg-purple-50 dark:bg-purple-950/40", text: "text-purple-700 dark:text-purple-300", border: "border-purple-200 dark:border-purple-800", dot: "bg-purple-500" },
-  Product:        { bg: "bg-blue-50 dark:bg-blue-950/40", text: "text-blue-700 dark:text-blue-300", border: "border-blue-200 dark:border-blue-800", dot: "bg-blue-500" },
-  Compliance:     { bg: "bg-orange-50 dark:bg-orange-950/40", text: "text-orange-700 dark:text-orange-300", border: "border-orange-200 dark:border-orange-800", dot: "bg-orange-500" },
-  Headshot:       { bg: "bg-pink-50 dark:bg-pink-950/40", text: "text-pink-700 dark:text-pink-300", border: "border-pink-200 dark:border-pink-800", dot: "bg-pink-500" },
+// ─── Category config ───────────────────────────────────────────────────────────
+const CATEGORY_CONFIG: Record<
+  string,
+  { bg: string; text: string; border: string; dot: string; icon: any }
+> = {
+  "Case Study":   { bg: "bg-blue-50 dark:bg-blue-950/40",     text: "text-blue-700 dark:text-blue-300",       border: "border-blue-200 dark:border-blue-800",     dot: "bg-blue-500",     icon: BookOpen },
+  "One Pager":    { bg: "bg-violet-50 dark:bg-violet-950/40",  text: "text-violet-700 dark:text-violet-300",    border: "border-violet-200 dark:border-violet-800",  dot: "bg-violet-500",   icon: FileText },
+  "White Paper":  { bg: "bg-slate-50 dark:bg-slate-900/40",    text: "text-slate-700 dark:text-slate-300",      border: "border-slate-200 dark:border-slate-700",    dot: "bg-slate-500",    icon: ScrollText },
+  Presentation:   { bg: "bg-amber-50 dark:bg-amber-950/40",    text: "text-amber-700 dark:text-amber-300",      border: "border-amber-200 dark:border-amber-800",    dot: "bg-amber-500",    icon: Presentation },
+  "API Document": { bg: "bg-sky-50 dark:bg-sky-950/40",        text: "text-sky-700 dark:text-sky-300",          border: "border-sky-200 dark:border-sky-800",        dot: "bg-sky-500",      icon: FileCode },
+  Email:          { bg: "bg-pink-50 dark:bg-pink-950/40",      text: "text-pink-700 dark:text-pink-300",        border: "border-pink-200 dark:border-pink-800",      dot: "bg-pink-500",     icon: Mail },
+  Logo:           { bg: "bg-indigo-50 dark:bg-indigo-950/40",  text: "text-indigo-700 dark:text-indigo-300",    border: "border-indigo-200 dark:border-indigo-800",  dot: "bg-indigo-500",   icon: Image },
+  Policy:         { bg: "bg-slate-50 dark:bg-slate-900/40",    text: "text-slate-700 dark:text-slate-300",      border: "border-slate-200 dark:border-slate-700",    dot: "bg-slate-500",    icon: Shield },
+  Infographic:    { bg: "bg-cyan-50 dark:bg-cyan-950/40",      text: "text-cyan-700 dark:text-cyan-300",        border: "border-cyan-200 dark:border-cyan-800",      dot: "bg-cyan-500",     icon: BarChart3 },
+  Brochure:       { bg: "bg-amber-50 dark:bg-amber-950/40",    text: "text-amber-700 dark:text-amber-300",      border: "border-amber-200 dark:border-amber-800",    dot: "bg-amber-500",    icon: FileImage },
+  Template:       { bg: "bg-emerald-50 dark:bg-emerald-950/40", text: "text-emerald-700 dark:text-emerald-300", border: "border-emerald-200 dark:border-emerald-800", dot: "bg-emerald-500",  icon: FileSpreadsheet },
+  Video:          { bg: "bg-rose-50 dark:bg-rose-950/40",      text: "text-rose-700 dark:text-rose-300",        border: "border-rose-200 dark:border-rose-800",      dot: "bg-rose-500",     icon: Film },
+  Prospecting:    { bg: "bg-purple-50 dark:bg-purple-950/40",  text: "text-purple-700 dark:text-purple-300",    border: "border-purple-200 dark:border-purple-800",  dot: "bg-purple-500",   icon: Target },
+  Product:        { bg: "bg-blue-50 dark:bg-blue-950/40",      text: "text-blue-700 dark:text-blue-300",        border: "border-blue-200 dark:border-blue-800",      dot: "bg-blue-500",     icon: Package },
+  Compliance:     { bg: "bg-orange-50 dark:bg-orange-950/40",  text: "text-orange-700 dark:text-orange-300",    border: "border-orange-200 dark:border-orange-800",  dot: "bg-orange-500",   icon: Shield },
+  Headshot:       { bg: "bg-pink-50 dark:bg-pink-950/40",      text: "text-pink-700 dark:text-pink-300",        border: "border-pink-200 dark:border-pink-800",      dot: "bg-pink-500",     icon: User },
 };
 
-const DEFAULT_CATEGORY = { bg: "bg-muted", text: "text-muted-foreground", border: "border-border/50", dot: "bg-muted-foreground" };
+const DEFAULT_CATEGORY = {
+  bg: "bg-muted",
+  text: "text-muted-foreground",
+  border: "border-border/50",
+  dot: "bg-muted-foreground",
+  icon: FileText,
+};
 
 const getCategoryStyle = (label?: string) =>
   label ? CATEGORY_CONFIG[label] ?? DEFAULT_CATEGORY : DEFAULT_CATEGORY;
@@ -59,16 +83,14 @@ const getCategoryStyle = (label?: string) =>
 // ─── Skeleton ──────────────────────────────────────────────────────────────────
 const SkeletonCard = () => (
   <div className="rounded-xl border bg-card overflow-hidden animate-pulse">
-    <div className="h-44 bg-muted" />
+    <div className="h-40 bg-muted" />
     <div className="p-4 space-y-3">
       <div className="flex items-center gap-2">
         <div className="h-5 w-20 bg-muted rounded-full" />
-        <div className="h-5 w-14 bg-muted rounded-full" />
       </div>
       <div className="h-5 w-3/4 bg-muted rounded-md" />
       <div className="h-4 w-full bg-muted rounded-md" />
-      <div className="h-4 w-2/3 bg-muted rounded-md" />
-      <div className="flex gap-2 pt-2">
+      <div className="flex gap-2 pt-1">
         <div className="h-9 flex-1 bg-muted rounded-lg" />
         <div className="h-9 flex-1 bg-muted rounded-lg" />
       </div>
@@ -76,55 +98,194 @@ const SkeletonCard = () => (
   </div>
 );
 
+// ─── Asset card ────────────────────────────────────────────────────────────────
+function AssetCard({
+  item,
+  onSelect,
+  onShare,
+  onDownload,
+}: {
+  item: any;
+  onSelect: () => void;
+  onShare: (link: string) => void;
+  onDownload: (file: any) => void;
+}) {
+  const f = item.fields;
+  const preview = Array.isArray(f.preview) ? f.preview[0] : f.preview;
+  const file = Array.isArray(f.file) ? f.file[0] : f.file;
+  const subcategories = Array.isArray(f.subcategories)
+    ? f.subcategories
+    : [f.subcategories].filter(Boolean);
+  const catStyle = getCategoryStyle(f.category?.label);
+  const CatIcon = catStyle.icon;
+
+  return (
+    <Card
+      role="listitem"
+      className="group overflow-hidden rounded-xl border bg-card hover:border-primary/40 hover:shadow-lg active:scale-[0.99] transition-all duration-200 outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 cursor-pointer flex flex-col"
+      onClick={onSelect}
+    >
+      {/* Preview */}
+      {preview?.url ? (
+        <div className="relative h-40 bg-muted overflow-hidden">
+          <img
+            src={preview.url}
+            alt={preview.filename || f.name}
+            className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500 ease-out"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+          <span className="absolute bottom-2.5 right-2.5 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background/90 text-foreground text-xs font-medium opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-sm backdrop-blur-sm translate-y-1 group-hover:translate-y-0">
+            <Eye className="h-3 w-3" />
+            Preview
+          </span>
+        </div>
+      ) : (
+        <div className="h-40 bg-muted/40 flex flex-col items-center justify-center gap-2">
+          <div className={`h-10 w-10 rounded-lg ${catStyle.bg} ${catStyle.border} border flex items-center justify-center`}>
+            <CatIcon className={`h-5 w-5 ${catStyle.text}`} />
+          </div>
+          <span className="text-[11px] text-muted-foreground/60 font-medium">
+            {f.category?.label || "Asset"}
+          </span>
+        </div>
+      )}
+
+      <CardContent className="p-4 flex flex-col flex-1">
+        {/* Category + Subcategories */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+          {f.category?.label && (
+            <Badge
+              variant="outline"
+              className={`text-[11px] font-medium ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}
+            >
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${catStyle.dot} mr-1`} />
+              {f.category.label}
+            </Badge>
+          )}
+          {subcategories.slice(0, 1).map((sub: any, idx: number) => (
+            <Badge key={idx} variant="outline" className="text-[11px]">
+              {sub.label || sub}
+            </Badge>
+          ))}
+          {subcategories.length > 1 && (
+            <span className="text-[11px] text-muted-foreground">
+              +{subcategories.length - 1}
+            </span>
+          )}
+        </div>
+
+        {/* Title */}
+        <h3 className="font-semibold text-foreground text-sm leading-snug line-clamp-2 group-hover:text-primary transition-colors duration-200">
+          {f.name || "Untitled"}
+        </h3>
+
+        {/* Description */}
+        {f.description && (
+          <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2 leading-relaxed">
+            {f.description}
+          </p>
+        )}
+
+        {/* Spacer */}
+        <div className="flex-1 min-h-[8px]" />
+
+        {/* Actions */}
+        <div className="flex gap-2 mt-3 pt-3 border-t border-border/40">
+          {f.publicLink && (
+            <Button
+              variant="default"
+              size="sm"
+              className="flex-1 gap-1.5 min-h-[36px] text-xs font-medium"
+              onClick={(e) => {
+                e.stopPropagation();
+                onShare(f.publicLink);
+              }}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open
+            </Button>
+          )}
+          {file?.url && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 gap-1.5 min-h-[36px] text-xs font-medium"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDownload(file);
+              }}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download
+            </Button>
+          )}
+          {!f.publicLink && !file?.url && (
+            <span className="text-xs text-muted-foreground/50 italic py-1.5">
+              No file available
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function Block() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedAsset, setSelectedAsset] = useState<any>(null);
-  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const { data, status, hasNextPage, fetchNextPage, isFetchingNextPage } = useRecords({
-    select,
-    count: 24,
-  });
+  const { data, status, hasNextPage, fetchNextPage, isFetchingNextPage } =
+    useRecords({
+      select,
+      count: 24,
+    });
 
   const items = useMemo(
     () => data?.pages.flatMap((page: any) => page.items) ?? [],
     [data]
   );
 
-  // Derive live category options from the data
+  // Derive live category options
   const categories = useMemo(() => {
-    const unique = new Map<string, string>();
+    const counts = new Map<string, { label: string; count: number }>();
     items.forEach((item: any) => {
       const label = item.fields.category?.label;
       if (label) {
         const lower = label.toLowerCase();
-        if (!unique.has(lower)) unique.set(lower, label);
+        const existing = counts.get(lower);
+        if (existing) existing.count++;
+        else counts.set(lower, { label, count: 1 });
       }
     });
-    return Array.from(unique.values()).sort((a, b) => a.localeCompare(b));
+    return Array.from(counts.values()).sort((a, b) =>
+      a.label.localeCompare(b.label)
+    );
   }, [items]);
 
   // Filtered items
   const filteredItems = useMemo(() => {
     return items.filter((item: any) => {
-      // Category filter
-      if (selectedCategory && item.fields.category?.label !== selectedCategory) return false;
-      // Search filter
+      if (
+        selectedCategory &&
+        item.fields.category?.label !== selectedCategory
+      )
+        return false;
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
         const nameMatch = item.fields.name?.toLowerCase().includes(s);
-        const categoryMatch = item.fields.category?.label?.toLowerCase().includes(s);
+        const categoryMatch = item.fields.category?.label
+          ?.toLowerCase()
+          .includes(s);
         const descMatch = item.fields.description?.toLowerCase().includes(s);
         if (!nameMatch && !categoryMatch && !descMatch) return false;
       }
       return true;
     });
   }, [items, searchTerm, selectedCategory]);
-
-  const activeFilterCount = [selectedCategory].filter(Boolean).length;
 
   const clearAllFilters = () => {
     setSearchTerm("");
@@ -142,21 +303,27 @@ export default function Block() {
   const copyLink = async (link: string) => {
     try {
       await navigator.clipboard.writeText(link);
-      setCopiedLink(true);
+      setCopiedLink(link);
       toast.success("Link copied!");
-      setTimeout(() => setCopiedLink(false), 2000);
+      setTimeout(() => setCopiedLink(null), 2000);
     } catch {
       toast.error("Failed to copy link");
     }
   };
+
+  const hasActiveFilters = !!(searchTerm || selectedCategory);
 
   // ─── Detail View ──────────────────────────────────────────────────────────
   if (selectedAsset) {
     const f = selectedAsset.fields;
     const preview = Array.isArray(f.preview) ? f.preview[0] : f.preview;
     const file = Array.isArray(f.file) ? f.file[0] : f.file;
-    const subcategories = Array.isArray(f.subcategories) ? f.subcategories : [f.subcategories].filter(Boolean);
+    const subcategories = Array.isArray(f.subcategories)
+      ? f.subcategories
+      : [f.subcategories].filter(Boolean);
     const catStyle = getCategoryStyle(f.category?.label);
+    const CatIcon = catStyle.icon;
+    const isCopied = copiedLink === f.publicLink;
 
     return (
       <div className="min-h-screen bg-background">
@@ -171,15 +338,26 @@ export default function Block() {
           </button>
 
           {/* Asset detail card */}
-          <div className="rounded-xl border bg-card overflow-hidden">
+          <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
             {/* Preview image */}
-            {preview?.url && (
+            {preview?.url ? (
               <div className="relative bg-muted">
                 <img
                   src={preview.url}
                   alt={preview.filename || f.name}
                   className="w-full max-h-[480px] object-contain mx-auto"
                 />
+              </div>
+            ) : (
+              <div className="h-48 bg-muted/40 flex flex-col items-center justify-center gap-3">
+                <div
+                  className={`h-16 w-16 rounded-xl ${catStyle.bg} ${catStyle.border} border flex items-center justify-center`}
+                >
+                  <CatIcon className={`h-8 w-8 ${catStyle.text}`} />
+                </div>
+                <span className="text-sm text-muted-foreground/60 font-medium">
+                  {f.category?.label || "Asset"}
+                </span>
               </div>
             )}
 
@@ -191,6 +369,9 @@ export default function Block() {
                     variant="outline"
                     className={`text-xs font-medium ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}
                   >
+                    <span
+                      className={`inline-block h-1.5 w-1.5 rounded-full ${catStyle.dot} mr-1.5`}
+                    />
                     {f.category.label}
                   </Badge>
                 )}
@@ -202,19 +383,19 @@ export default function Block() {
               </div>
 
               {/* Title */}
-              <h2 className="text-lg sm:text-xl font-bold text-foreground mb-3">
+              <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-3 leading-tight">
                 {f.name || "Untitled Asset"}
               </h2>
 
               {/* Description */}
               {f.description && (
-                <p className="text-sm text-muted-foreground leading-relaxed mb-6">
+                <p className="text-sm text-muted-foreground leading-relaxed mb-6 max-w-2xl">
                   {f.description}
                 </p>
               )}
 
               {/* Action buttons */}
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-3 pt-2">
                 {f.publicLink && (
                   <Button
                     onClick={() => handleShare(f.publicLink)}
@@ -231,21 +412,27 @@ export default function Block() {
                     className="gap-2 min-h-[44px]"
                   >
                     <Download className="h-4 w-4" />
-                    Download
+                    Download File
                   </Button>
                 )}
                 {f.publicLink && (
                   <Button
                     variant="ghost"
                     onClick={() => copyLink(f.publicLink)}
-                    className={`gap-2 min-h-[44px] transition-all ${
-                      copiedLink ? "text-emerald-600" : ""
+                    className={`gap-2 min-h-[44px] transition-all duration-200 ${
+                      isCopied
+                        ? "text-emerald-600 hover:text-emerald-700"
+                        : ""
                     }`}
                   >
-                    {copiedLink ? (
-                      <><Check className="h-4 w-4" /> Copied</>
+                    {isCopied ? (
+                      <>
+                        <Check className="h-4 w-4" /> Copied
+                      </>
                     ) : (
-                      <><Copy className="h-4 w-4" /> Copy Link</>
+                      <>
+                        <Copy className="h-4 w-4" /> Copy Link
+                      </>
                     )}
                   </Button>
                 )}
@@ -261,12 +448,13 @@ export default function Block() {
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-5xl mx-auto px-4 py-10">
-
         {/* ── Page Header ─────────────────────────────────────────────────── */}
         <div className="mb-8">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Asset Library</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+                Asset Library
+              </h1>
               <p className="mt-1.5 text-muted-foreground text-sm sm:text-base">
                 Browse and download marketing assets, documents, and resources.
               </p>
@@ -277,7 +465,10 @@ export default function Block() {
               rel="noopener noreferrer"
               className="shrink-0 hidden sm:inline-flex"
             >
-              <Button variant="outline" className="gap-2 border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/60">
+              <Button
+                variant="outline"
+                className="gap-2 border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/60"
+              >
                 <ExternalLink className="h-4 w-4" />
                 Request Asset
               </Button>
@@ -285,14 +476,14 @@ export default function Block() {
           </div>
         </div>
 
-        {/* ── Search + Filters toggle ─────────────────────────────────────── */}
+        {/* ── Search bar ──────────────────────────────────────────────────── */}
         <div className="flex gap-3 mb-4">
           <div className="relative flex-1">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <Input
               ref={searchRef}
               type="text"
-              placeholder="Search by name, category, or description…"
+              placeholder="Search by name, category, or description..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 h-11 text-sm bg-background"
@@ -308,20 +499,6 @@ export default function Block() {
             )}
           </div>
 
-          <Button
-            variant={selectedCategory ? "default" : "outline"}
-            onClick={() => setSelectedCategory(selectedCategory ? "" : categories[0] || "")}
-            className="h-11 gap-2 shrink-0"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-            Filters
-            {activeFilterCount > 0 && (
-              <span className="ml-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-xs font-semibold">
-                {activeFilterCount}
-              </span>
-            )}
-          </Button>
-
           {/* Mobile request link */}
           <a
             href="https://wkf.ms/4mJslYK"
@@ -329,7 +506,11 @@ export default function Block() {
             rel="noopener noreferrer"
             className="sm:hidden shrink-0"
           >
-            <Button variant="outline" size="icon" className="h-11 w-11 border-primary/30 text-primary">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-11 w-11 border-primary/30 text-primary"
+            >
               <ExternalLink className="h-4 w-4" />
             </Button>
           </a>
@@ -342,29 +523,53 @@ export default function Block() {
               <button
                 onClick={() => setSelectedCategory("")}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 active:scale-[0.97] min-h-[36px]
-                  ${!selectedCategory
-                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                    : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+                  ${
+                    !selectedCategory
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
                   }`}
               >
                 <Layers className="h-3 w-3" />
-                All Assets
+                All
+                <span
+                  className={`text-[10px] font-bold ${
+                    !selectedCategory
+                      ? "text-primary-foreground/70"
+                      : "text-muted-foreground/60"
+                  }`}
+                >
+                  {items.length}
+                </span>
               </button>
-              {categories.map((cat) => {
+              {categories.map(({ label: cat, count }) => {
                 const style = getCategoryStyle(cat);
                 const isActive = selectedCategory === cat;
                 return (
                   <button
                     key={cat}
-                    onClick={() => setSelectedCategory(isActive ? "" : cat)}
+                    onClick={() =>
+                      setSelectedCategory(isActive ? "" : cat)
+                    }
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 active:scale-[0.97] min-h-[36px]
-                      ${isActive
-                        ? `${style.bg} ${style.text} ${style.border} shadow-sm`
-                        : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+                      ${
+                        isActive
+                          ? `${style.bg} ${style.text} ${style.border} shadow-sm`
+                          : "bg-background text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
                       }`}
                   >
-                    <span className={`h-2 w-2 rounded-full ${style.dot}`} />
+                    <span
+                      className={`h-2 w-2 rounded-full ${style.dot}`}
+                    />
                     {cat}
+                    <span
+                      className={`text-[10px] font-bold ${
+                        isActive
+                          ? `${style.text} opacity-60`
+                          : "text-muted-foreground/50"
+                      }`}
+                    >
+                      {count}
+                    </span>
                   </button>
                 );
               })}
@@ -372,12 +577,12 @@ export default function Block() {
           </nav>
         )}
 
-        {/* ── Active filter chips + clear ─────────────────────────────────── */}
-        {activeFilterCount > 0 && (
+        {/* ── Active filter strip ─────────────────────────────────────────── */}
+        {selectedCategory && (
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <span className="inline-flex items-center gap-1.5 pl-3 pr-1 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium border border-primary/20">
               <span className="opacity-70">Category:</span>
-              <span>{selectedCategory}</span>
+              <span className="font-semibold">{selectedCategory}</span>
               <button
                 onClick={() => setSelectedCategory("")}
                 className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-primary/20 active:bg-primary/30 transition-colors"
@@ -399,8 +604,14 @@ export default function Block() {
 
         {/* Loading */}
         {status === "pending" && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 min-h-[280px]" role="status" aria-label="Loading assets">
-            {[1, 2, 3, 4, 5, 6].map((i) => <SkeletonCard key={i} />)}
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 min-h-[280px]"
+            role="status"
+            aria-label="Loading assets"
+          >
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <SkeletonCard key={i} />
+            ))}
           </div>
         )}
 
@@ -411,7 +622,9 @@ export default function Block() {
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
                 <FileText className="h-7 w-7 text-destructive" />
               </div>
-              <h2 className="text-lg font-semibold text-foreground mb-2">Error loading assets</h2>
+              <h2 className="text-lg font-semibold text-foreground mb-2">
+                Error loading assets
+              </h2>
               <p className="text-muted-foreground text-sm max-w-sm mx-auto">
                 Something went wrong. Please try again later.
               </p>
@@ -434,10 +647,17 @@ export default function Block() {
               <p className="text-sm text-muted-foreground">
                 {filteredItems.length === 0
                   ? "No assets found"
-                  : `${filteredItems.length} ${filteredItems.length === 1 ? "asset" : "assets"} available`}
+                  : `${filteredItems.length} ${
+                      filteredItems.length === 1 ? "asset" : "assets"
+                    } available`}
               </p>
-              {(searchTerm || selectedCategory) && (
-                <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-muted-foreground gap-1.5">
+              {hasActiveFilters && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearAllFilters}
+                  className="text-muted-foreground gap-1.5"
+                >
                   <X className="h-3.5 w-3.5" />
                   Reset
                 </Button>
@@ -450,7 +670,9 @@ export default function Block() {
                 <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
                   <FolderOpen className="h-7 w-7 text-primary" />
                 </div>
-                <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-2">No assets found</h2>
+                <h2 className="text-lg sm:text-xl font-semibold text-foreground mb-2">
+                  No assets found
+                </h2>
                 <p className="text-muted-foreground text-sm max-w-sm mx-auto mb-8">
                   {searchTerm
                     ? `Nothing matched "${searchTerm}". Try a different search term.`
@@ -460,8 +682,15 @@ export default function Block() {
                   <Button variant="outline" onClick={clearAllFilters}>
                     Clear filters
                   </Button>
-                  <a href="https://wkf.ms/4mJslYK" target="_blank" rel="noopener noreferrer">
-                    <Button variant="outline" className="gap-2 border-primary/30 text-primary hover:bg-primary/5">
+                  <a
+                    href="https://wkf.ms/4mJslYK"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Button
+                      variant="outline"
+                      className="gap-2 border-primary/30 text-primary hover:bg-primary/5"
+                    >
                       <ExternalLink className="h-4 w-4" />
                       Request New Asset
                     </Button>
@@ -476,102 +705,15 @@ export default function Block() {
                   role="list"
                   aria-label="Asset library"
                 >
-                  {filteredItems.map((item: any) => {
-                    const preview = Array.isArray(item.fields.preview) ? item.fields.preview[0] : item.fields.preview;
-                    const file = Array.isArray(item.fields.file) ? item.fields.file[0] : item.fields.file;
-                    const subcategories = Array.isArray(item.fields.subcategories) ? item.fields.subcategories : [item.fields.subcategories].filter(Boolean);
-                    const catStyle = getCategoryStyle(item.fields.category?.label);
-
-                    return (
-                      <Card
-                        key={item.id}
-                        role="listitem"
-                        className="group overflow-hidden rounded-xl border bg-card hover:border-primary/50 hover:shadow-md active:scale-[0.99] transition-all duration-200 outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 cursor-pointer"
-                        onClick={() => setSelectedAsset(item)}
-                      >
-                        {/* Preview Image */}
-                        {preview?.url ? (
-                          <div className="relative h-44 bg-muted overflow-hidden">
-                            <img
-                              src={preview.url}
-                              alt={preview.filename || item.fields.name}
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                            />
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors duration-200 flex items-center justify-center">
-                              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-background/90 text-foreground text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity duration-200 shadow-sm backdrop-blur-sm">
-                                <Eye className="h-3.5 w-3.5" />
-                                Preview
-                              </span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="h-44 bg-muted/50 flex items-center justify-center">
-                            <FileText className="h-10 w-10 text-muted-foreground/30" />
-                          </div>
-                        )}
-
-                        <CardContent className="p-4">
-                          {/* Category + Subcategories */}
-                          <div className="flex flex-wrap items-center gap-1.5 mb-3">
-                            {item.fields.category?.label && (
-                              <Badge
-                                variant="outline"
-                                className={`text-[11px] font-medium ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}
-                              >
-                                {item.fields.category.label}
-                              </Badge>
-                            )}
-                            {subcategories.slice(0, 2).map((sub: any, idx: number) => (
-                              <Badge key={idx} variant="outline" className="text-[11px]">
-                                {sub.label || sub}
-                              </Badge>
-                            ))}
-                            {subcategories.length > 2 && (
-                              <span className="text-[11px] text-muted-foreground">+{subcategories.length - 2}</span>
-                            )}
-                          </div>
-
-                          {/* Title */}
-                          <h3 className="font-semibold text-foreground text-sm leading-snug line-clamp-2 group-hover:text-primary transition-colors min-h-[40px]">
-                            {item.fields.name || "Untitled"}
-                          </h3>
-
-                          {/* Description */}
-                          {item.fields.description && (
-                            <p className="text-xs text-muted-foreground mt-2 line-clamp-2 leading-relaxed">
-                              {item.fields.description}
-                            </p>
-                          )}
-
-                          {/* Actions */}
-                          <div className="flex gap-2 mt-4">
-                            {item.fields.publicLink && (
-                              <Button
-                                variant="default"
-                                size="sm"
-                                className="flex-1 gap-1.5 min-h-[36px] text-xs"
-                                onClick={(e) => { e.stopPropagation(); handleShare(item.fields.publicLink); }}
-                              >
-                                <ExternalLink className="h-3.5 w-3.5" />
-                                Share
-                              </Button>
-                            )}
-                            {file?.url && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="flex-1 gap-1.5 min-h-[36px] text-xs"
-                                onClick={(e) => { e.stopPropagation(); handleDownload(file); }}
-                              >
-                                <Download className="h-3.5 w-3.5" />
-                                Download
-                              </Button>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
+                  {filteredItems.map((item: any) => (
+                    <AssetCard
+                      key={item.id}
+                      item={item}
+                      onSelect={() => setSelectedAsset(item)}
+                      onShare={handleShare}
+                      onDownload={handleDownload}
+                    />
+                  ))}
                 </div>
 
                 {/* Load More */}
@@ -586,7 +728,7 @@ export default function Block() {
                       {isFetchingNextPage ? (
                         <>
                           <span className="inline-block h-4 w-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
-                          Loading…
+                          Loading...
                         </>
                       ) : (
                         "Load More Assets"
