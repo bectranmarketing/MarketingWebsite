@@ -326,7 +326,7 @@ function AssetRow({
 }: {
   item: any;
   onSelect: () => void;
-  onDownload: (file: any) => void;
+  onDownload: (item: any) => void;
 }) {
   const f = item.fields;
   const preview = Array.isArray(f.preview) ? f.preview[0] : f.preview;
@@ -431,7 +431,7 @@ function AssetRow({
               className="gap-1.5 text-xs font-medium min-h-[36px]"
               onClick={(e) => {
                 e.stopPropagation();
-                onDownload(file);
+                onDownload(item);
               }}
             >
               <Download className="h-3.5 w-3.5" />
@@ -475,7 +475,7 @@ function AssetRow({
               className="flex-1 gap-1.5 text-xs font-medium min-h-[36px]"
               onClick={(e) => {
                 e.stopPropagation();
-                onDownload(file);
+                onDownload(item);
               }}
             >
               <Download className="h-3.5 w-3.5" />
@@ -508,7 +508,7 @@ export default function Block() {
   const [quizAutoApplied, setQuizAutoApplied] = useState(false);
   const quizContainerRef = useRef<HTMLDivElement>(null);
 
-  const { data, status } = useRecords({
+  const { data, status, refetch } = useRecords({
     select,
     orderBy: sortOrder === "asc" ? q.asc(sortField) : q.desc(sortField),
     count: 100,
@@ -518,6 +518,12 @@ export default function Block() {
     () => data?.pages.flatMap((page: any) => page.items) ?? [],
     [data]
   );
+
+  // Always refetch once on page load to refresh expiring monday file URLs.
+  useEffect(() => {
+    refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Derive unique category options from data (future-proof: driven by data)
   const categoryOptions = useMemo(() => {
@@ -603,8 +609,42 @@ export default function Block() {
     setPage(0);
   };
 
-  const handleDownload = (file: any) => {
-    if (file?.url) window.open(file.url, "_blank");
+  const handleDownload = async (itemOrFile: any) => {
+    const fallbackFile = itemOrFile?.fields
+      ? Array.isArray(itemOrFile.fields.file)
+        ? itemOrFile.fields.file[0]
+        : itemOrFile.fields.file
+      : itemOrFile;
+
+    let latestUrl = fallbackFile?.url;
+
+    if (itemOrFile?.id) {
+      try {
+        const refreshed: any = await refetch();
+        const refreshedPages =
+          refreshed?.pages ?? refreshed?.data?.pages ?? data?.pages ?? [];
+        const refreshedItems = refreshedPages.flatMap((page: any) => page.items ?? []);
+        const refreshedItem = refreshedItems.find((x: any) => x.id === itemOrFile.id);
+        const refreshedFile = refreshedItem?.fields
+          ? Array.isArray(refreshedItem.fields.file)
+            ? refreshedItem.fields.file[0]
+            : refreshedItem.fields.file
+          : null;
+
+        if (refreshedFile?.url) {
+          latestUrl = refreshedFile.url;
+        }
+      } catch {
+        // Fallback to the currently loaded URL if refetch fails.
+      }
+    }
+
+    if (latestUrl) {
+      window.open(latestUrl, "_blank");
+      return;
+    }
+
+    toast.error("Download link is unavailable. Try refreshing the page.");
   };
 
   const copyLink = async (link: string) => {
@@ -1429,7 +1469,7 @@ export default function Block() {
                     {selectedFile?.url && (
                       <Button
                         variant="outline"
-                        onClick={() => handleDownload(selectedFile)}
+                        onClick={() => handleDownload(selectedAsset)}
                         className="gap-2 min-h-[42px]"
                       >
                         <Download className="h-4 w-4" />
