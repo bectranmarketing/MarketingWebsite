@@ -357,7 +357,7 @@ function AssetRow({
   return (
     <div
       role="listitem"
-      className="group rounded-xl border bg-card hover:border-primary/40 hover:shadow-md transition-all duration-200 cursor-pointer outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2"
+      className="group rounded-xl border bg-card hover:border-primary/25 transition-all duration-200 cursor-pointer outline-none focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2"
       onClick={onSelect}
     >
       {/* Top row: thumbnail | name + badges | action button */}
@@ -413,15 +413,11 @@ function AssetRow({
                 {catLabel}
               </Badge>
             )}
-            {subcategories.map((sub, idx) => (
-              <Badge
-                key={idx}
-                variant="outline"
-                className="text-[11px] text-muted-foreground"
-              >
-                {sub}
-              </Badge>
-            ))}
+            {subcategories.length > 0 && (
+              <span className="text-[11px] text-muted-foreground">
+                {subcategories.join(" · ")}
+              </span>
+            )}
           </div>
         </div>
 
@@ -459,12 +455,10 @@ function AssetRow({
 
       {/* Description */}
       {f.description && (
-        <div className="px-3 sm:px-4 pb-3 sm:pb-4 -mt-1">
-          <div className="border-t border-border/40 pt-2.5">
-            <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-2">
-              {f.description}
-            </p>
-          </div>
+        <div className="px-3 sm:px-4 pb-3 sm:pb-3 -mt-1">
+          <p className="text-xs sm:text-sm text-muted-foreground/90 leading-relaxed line-clamp-1">
+            {f.description}
+          </p>
         </div>
       )}
 
@@ -509,7 +503,7 @@ export default function Block() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedSubcategory, setSelectedSubcategory] = useState("");
-  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<any>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [sortField, setSortField] = useState<string>("name");
@@ -932,20 +926,7 @@ export default function Block() {
                 View, download, and share Bectran marketing materials.
               </p>
             </div>
-            <a
-              href="https://wkf.ms/4mJslYK"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0"
-            >
-              <Button className="gap-2 hidden sm:inline-flex">
-                <ExternalLink className="h-4 w-4" />
-                Request New Asset
-              </Button>
-              <Button size="icon" className="h-10 w-10 sm:hidden">
-                <ExternalLink className="h-4 w-4" />
-              </Button>
-            </a>
+
           </div>
         </div>
 
@@ -973,7 +954,7 @@ export default function Block() {
             )}
           </div>
           <Button
-            variant={filtersOpen ? "default" : "outline"}
+            variant={filtersOpen ? "secondary" : "outline"}
             onClick={() => setFiltersOpen((v) => !v)}
             className="h-12 sm:h-11 gap-2 shrink-0"
             type="button"
@@ -991,7 +972,7 @@ export default function Block() {
           <Button
             variant="outline"
             onClick={openQuiz}
-            className="h-12 sm:h-11 gap-2 shrink-0 border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/60"
+            className="h-12 sm:h-11 gap-2 shrink-0 text-muted-foreground"
           >
             <Wand2 className="h-4 w-4" />
             <span className="hidden sm:inline">Find by Quiz</span>
