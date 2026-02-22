@@ -123,6 +123,40 @@ const toSubArray = (v: any): string[] => {
   return s ? [s] : [];
 };
 
+const getAttachment = (value: any) =>
+  Array.isArray(value) ? value[0] : value;
+
+const getFileExtension = (asset: any): string => {
+  const filename = String(asset?.filename || "").toLowerCase();
+  if (filename.includes(".")) return filename.split(".").pop() || "";
+  const url = String(asset?.url || "").split("?")[0].toLowerCase();
+  if (url.includes(".")) return url.split(".").pop() || "";
+  return "";
+};
+
+const isImageExtension = (ext: string) =>
+  ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif"].includes(ext);
+
+const getPreviewSource = (fields: any) => {
+  const preview = getAttachment(fields.preview);
+  const file = getAttachment(fields.file);
+  const previewExt = getFileExtension(preview);
+  const fileExt = getFileExtension(file);
+
+  if (preview?.url && isImageExtension(previewExt)) {
+    return { type: "image" as const, url: preview.url, ext: previewExt, file };
+  }
+
+  const primary = preview?.url ? preview : file;
+  const ext = preview?.url ? previewExt : fileExt;
+  return {
+    type: isImageExtension(ext) ? ("image" as const) : ("document" as const),
+    url: primary?.url || "",
+    ext,
+    file,
+  };
+};
+
 // ─── Quiz config ──────────────────────────────────────────────────────────────
 type QuizId = "category" | "subcategory";
 
@@ -267,8 +301,8 @@ function AssetRow({
   onDownload: (file: any) => void;
 }) {
   const f = item.fields;
-  const preview = Array.isArray(f.preview) ? f.preview[0] : f.preview;
-  const file = Array.isArray(f.file) ? f.file[0] : f.file;
+  const previewSource = getPreviewSource(f);
+  const file = getAttachment(f.file);
   const subcategories = toSubArray(f.subcategories);
   const catLabel = labelOf(f.category);
   const catStyle = getCategoryStyle(catLabel);
@@ -285,10 +319,10 @@ function AssetRow({
       {/* Top row: thumbnail | name + badges | action button */}
       <div className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4">
         {/* Thumbnail */}
-        {preview?.url ? (
+        {previewSource.url && previewSource.type === "image" ? (
           <div className="shrink-0 h-16 w-24 sm:h-20 sm:w-28 rounded-lg overflow-hidden bg-muted">
             <img
-              src={preview.url}
+              src={previewSource.url}
               alt={f.name || "Asset preview"}
               className="h-full w-full object-cover group-hover:scale-[1.03] transition-transform duration-500 ease-out"
               onError={(e) => {
@@ -300,7 +334,13 @@ function AssetRow({
           <div
             className={`shrink-0 h-16 w-24 sm:h-20 sm:w-28 rounded-lg border ${catStyle.border} ${catStyle.bg} flex items-center justify-center`}
           >
-            <CatIcon className={`h-6 w-6 sm:h-7 sm:w-7 ${catStyle.text} opacity-70`} />
+            {previewSource.ext === "ppt" || previewSource.ext === "pptx" ? (
+              <Presentation className={`h-6 w-6 sm:h-7 sm:w-7 ${catStyle.text} opacity-70`} />
+            ) : previewSource.ext === "pdf" ? (
+              <FileText className={`h-6 w-6 sm:h-7 sm:w-7 ${catStyle.text} opacity-70`} />
+            ) : (
+              <CatIcon className={`h-6 w-6 sm:h-7 sm:w-7 ${catStyle.text} opacity-70`} />
+            )}
           </div>
         )}
 
@@ -666,6 +706,15 @@ export default function Block() {
     return () => document.removeEventListener("keydown", handler);
   }, [quizOpen]);
 
+  useEffect(() => {
+    if (!selectedAsset) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedAsset(null);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [selectedAsset]);
+
   // ─── Active filter chips ──────────────────────────────────────────────────
   const activeFilters: { label: string; value: string; clear: () => void }[] = [
     ...(selectedCategory
@@ -688,132 +737,150 @@ export default function Block() {
       : []),
   ];
 
-  // ─── Detail View ──────────────────────────────────────────────────────────
-  if (selectedAsset) {
+  const selectedAssetModal = selectedAsset ? (() => {
     const f = selectedAsset.fields;
-    const preview = Array.isArray(f.preview) ? f.preview[0] : f.preview;
-    const file = Array.isArray(f.file) ? f.file[0] : f.file;
+    const previewSource = getPreviewSource(f);
+    const file = getAttachment(f.file);
     const subcategories = toSubArray(f.subcategories);
     const catLabel = labelOf(f.category);
     const catStyle = getCategoryStyle(catLabel);
     const CatIcon = catStyle.icon;
     const isCopied = copiedLink === f.publicLink;
+    const isPdf = previewSource.ext === "pdf";
+    const isPowerpoint = ["ppt", "pptx"].includes(previewSource.ext);
+    const officeEmbedUrl = previewSource.url
+      ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(previewSource.url)}`
+      : "";
 
     return (
-      <div className="min-h-screen bg-background">
-        <div className="max-w-5xl mx-auto px-3 sm:px-4 py-6 sm:py-10">
-          {/* Back nav */}
-          <button
-            onClick={() => setSelectedAsset(null)}
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6 py-1.5 transition-colors duration-200 group outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded"
-          >
-            <ArrowLeft className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />
-            Back to assets
-          </button>
+      <div
+        className="fixed inset-0 z-50 bg-background/75 backdrop-blur-[1px] p-3 sm:p-6 overflow-y-auto"
+        onClick={() => setSelectedAsset(null)}
+      >
+        <div
+          className="max-w-5xl mx-auto rounded-xl border bg-card overflow-hidden shadow-lg"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b">
+            <button
+              onClick={() => setSelectedAsset(null)}
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground py-1.5 transition-colors duration-200 group outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded"
+            >
+              <ArrowLeft className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />
+              Back to assets
+            </button>
+            <Button variant="ghost" size="icon" onClick={() => setSelectedAsset(null)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
 
-          {/* Asset detail card */}
-          <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
-            {/* Preview image */}
-            {preview?.url ? (
-              <div className="relative bg-muted">
+          {previewSource.url ? (
+            <div className="relative bg-muted min-h-[280px]">
+              {previewSource.type === "image" ? (
                 <img
-                  src={preview.url}
-                  alt={preview.filename || f.name}
-                  className="w-full max-h-[480px] object-contain mx-auto"
+                  src={previewSource.url}
+                  alt={f.name}
+                  className="w-full max-h-[560px] object-contain mx-auto"
                 />
+              ) : isPdf || isPowerpoint ? (
+                <iframe
+                  src={isPowerpoint ? officeEmbedUrl : previewSource.url}
+                  title={f.name || "Asset preview"}
+                  className="w-full h-[55vh] min-h-[340px]"
+                />
+              ) : (
+                <iframe
+                  src={previewSource.url}
+                  title={f.name || "Asset preview"}
+                  className="w-full h-[55vh] min-h-[340px]"
+                />
+              )}
+            </div>
+          ) : (
+            <div className="h-48 bg-muted/40 flex flex-col items-center justify-center gap-3">
+              <div
+                className={`h-16 w-16 rounded-xl border ${catStyle.border} ${catStyle.bg} flex items-center justify-center`}
+              >
+                <CatIcon className={`h-8 w-8 ${catStyle.text}`} />
               </div>
-            ) : (
-              <div className="h-48 bg-muted/40 flex flex-col items-center justify-center gap-3">
-                <div
-                  className={`h-16 w-16 rounded-xl border ${catStyle.border} ${catStyle.bg} flex items-center justify-center`}
+              <span className="text-sm text-muted-foreground/60 font-medium">
+                {catLabel || "Asset"}
+              </span>
+            </div>
+          )}
+
+          <div className="p-5 sm:p-8">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              {catLabel && (
+                <Badge
+                  variant="outline"
+                  className={`text-xs font-medium ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}
                 >
-                  <CatIcon className={`h-8 w-8 ${catStyle.text}`} />
-                </div>
-                <span className="text-sm text-muted-foreground/60 font-medium">
-                  {catLabel || "Asset"}
-                </span>
-              </div>
+                  {catLabel}
+                </Badge>
+              )}
+              {subcategories.map((sub, idx) => (
+                <Badge key={idx} variant="outline" className="text-xs">
+                  {sub}
+                </Badge>
+              ))}
+            </div>
+
+            <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-3 leading-tight">
+              {f.name || "Untitled Asset"}
+            </h2>
+
+            {f.description && (
+              <p className="text-sm text-muted-foreground leading-relaxed mb-6 max-w-2xl">
+                {f.description}
+              </p>
             )}
 
-            <div className="p-5 sm:p-8">
-              {/* Category + Subcategories */}
-              <div className="flex flex-wrap items-center gap-2 mb-4">
-                {catLabel && (
-                  <Badge
-                    variant="outline"
-                    className={`text-xs font-medium ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}
-                  >
-                    {catLabel}
-                  </Badge>
-                )}
-                {subcategories.map((sub, idx) => (
-                  <Badge key={idx} variant="outline" className="text-xs">
-                    {sub}
-                  </Badge>
-                ))}
-              </div>
-
-              {/* Title */}
-              <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-3 leading-tight">
-                {f.name || "Untitled Asset"}
-              </h2>
-
-              {/* Description */}
-              {f.description && (
-                <p className="text-sm text-muted-foreground leading-relaxed mb-6 max-w-2xl">
-                  {f.description}
-                </p>
+            <div className="flex flex-wrap gap-3 pt-2">
+              {f.publicLink && (
+                <Button
+                  onClick={() => window.open(f.publicLink, "_blank")}
+                  className="gap-2 min-h-[44px]"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Open Link
+                </Button>
               )}
-
-              {/* Action buttons */}
-              <div className="flex flex-wrap gap-3 pt-2">
-                {f.publicLink && (
-                  <Button
-                    onClick={() => window.open(f.publicLink, "_blank")}
-                    className="gap-2 min-h-[44px]"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    Open Link
-                  </Button>
-                )}
-                {file?.url && (
-                  <Button
-                    variant="outline"
-                    onClick={() => handleDownload(file)}
-                    className="gap-2 min-h-[44px]"
-                  >
-                    <Download className="h-4 w-4" />
-                    Download File
-                  </Button>
-                )}
-                {f.publicLink && (
-                  <Button
-                    variant="ghost"
-                    onClick={() => copyLink(f.publicLink)}
-                    className={`gap-2 min-h-[44px] transition-all duration-200 ${
-                      isCopied
-                        ? "text-emerald-600 hover:text-emerald-700"
-                        : ""
-                    }`}
-                  >
-                    {isCopied ? (
-                      <>
-                        <Check className="h-4 w-4" /> Copied
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-4 w-4" /> Copy Link
-                      </>
-                    )}
-                  </Button>
-                )}
-              </div>
+              {file?.url && (
+                <Button
+                  variant="outline"
+                  onClick={() => handleDownload(file)}
+                  className="gap-2 min-h-[44px]"
+                >
+                  <Download className="h-4 w-4" />
+                  Download File
+                </Button>
+              )}
+              {f.publicLink && (
+                <Button
+                  variant="ghost"
+                  onClick={() => copyLink(f.publicLink)}
+                  className={`gap-2 min-h-[44px] transition-all duration-200 ${
+                    isCopied ? "text-emerald-600 hover:text-emerald-700" : ""
+                  }`}
+                >
+                  {isCopied ? (
+                    <>
+                      <Check className="h-4 w-4" /> Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4" /> Copy Link
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </div>
         </div>
       </div>
     );
-  }
+  })() : null;
 
   // ─── List View ────────────────────────────────────────────────────────────
   if (status === "pending") {
@@ -1327,6 +1394,8 @@ export default function Block() {
             </div>
           </div>
         )}
+
+        {selectedAssetModal}
       </div>
     </div>
   );
