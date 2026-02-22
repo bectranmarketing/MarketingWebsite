@@ -1,0 +1,1288 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import {
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Search,
+  X,
+  Wand2,
+  ChevronLeft,
+  ChevronRight as ChevronRightIcon,
+  SlidersHorizontal,
+  ArrowLeft,
+  Clock,
+  Layers,
+} from "lucide-react";
+import { toast } from "sonner";
+import { useRecords, q } from "@/lib/datasource";
+import DOMPurify from "dompurify";
+
+// ─── Data shape ────────────────────────────────────────────────────────────────
+const select = q.select({
+  name: "name",
+  scenario: "long_text_mkztcp8c",
+  position: "dropdown_mm068v5a",
+  currentProvider: "color_mm0639e4",
+  targetAccount: "color_mm06shn3",
+  industry: "dropdown_mm06vpt1",
+  module: "dropdown_mm07vdr4",
+  email1: "long_text_mm06tj42",
+  email2: "long_text_mm06643w",
+  email3: "long_text_mm066ppj",
+  email4: "long_text_mm06zx5z",
+  email5: "long_text_mm06hvps",
+  connectOnLinkedIn: "color_mm0rqb88",
+  linkedInMessage: "long_text_mm0r98rw",
+  status: "status",
+});
+
+// ─── HTML helpers ───────────────────────────────────────────────────────────────
+const sanitizeHtml = (html: string) => {
+  // Allow style attributes but strip everything except color so inline
+  // highlight colors (e.g. placeholders) survive without opening CSS injection.
+  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    if (node.hasAttribute("style")) {
+      const colorMatch = node.getAttribute("style")?.match(/color\s*:\s*[^;]+/i);
+      if (colorMatch) {
+        node.setAttribute("style", colorMatch[0]);
+      } else {
+        node.removeAttribute("style");
+      }
+    }
+  });
+
+  const clean = DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ["a", "p", "br", "ul", "ol", "li", "strong", "em", "b", "i", "span", "div", "font"],
+    ALLOWED_ATTR: ["href", "target", "rel", "style", "color"],
+    ADD_ATTR: ["target"],
+  });
+
+  DOMPurify.removeHook("afterSanitizeAttributes");
+  return clean;
+};
+
+const processHtmlLinks = (html: string) =>
+  sanitizeHtml(html || "").replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" ');
+
+// ─── Field helpers ──────────────────────────────────────────────────────────────
+const getField = (record: any, ...keys: string[]) => {
+  try {
+    if (!record || typeof record !== "object") return undefined;
+    for (const key of keys) {
+      if (record[key] != null) return record[key];
+      if (record.fields?.[key] != null) return record.fields[key];
+      if (record.data?.[key] != null) return record.data[key];
+    }
+    const lowerKeys = keys.map((k) => k.toLowerCase());
+    const containers = [record, record.fields, record.data].filter(Boolean);
+    for (const container of containers) {
+      for (const ck of Object.keys(container)) {
+        if (lowerKeys.includes(ck.toLowerCase())) {
+          const val = (container as any)[ck];
+          if (val != null) return val;
+        }
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const normalizeValue = (v: any): any => {
+  if (v === null || v === undefined || v === "") return "";
+  if (Array.isArray(v))
+    return v
+      .flatMap(normalizeValue)
+      .map((x) => (typeof x === "string" ? x.trim() : x))
+      .filter((x) => x !== "" && x != null);
+  if (typeof v === "object") {
+    const extracted = v.label ?? v.name ?? v.value ?? v.title ?? v.id;
+    return extracted == null ? "" : String(extracted).trim();
+  }
+  return String(v).trim();
+};
+
+const toArray = (v: any): string[] => {
+  const normalized = normalizeValue(v);
+  if (Array.isArray(normalized)) return (normalized as any[]).filter(Boolean).map(String);
+  if (!normalized) return [];
+  const s = String(normalized);
+  if (s.includes(",")) return s.split(",").map((x) => x.trim()).filter(Boolean);
+  return [s];
+};
+
+const buildTags = (record: any) => {
+  const tags: { category: string; label: string }[] = [];
+  const seen = new Set<string>();
+  const add = (category: string, ...fieldKeys: string[]) => {
+    const raw = getField(record, ...fieldKeys);
+    toArray(raw).forEach((label) => {
+      if (!label) return;
+      const key = label.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      tags.push({ category, label });
+    });
+  };
+  add("account", "targetAccount", "Target Account", "target_account");
+  add("provider", "currentProvider", "Current Provider", "current_provider");
+  add("industry", "industry", "Industry");
+  add("module", "module", "Module");
+  return tags;
+};
+
+// ─── Cadence step types ────────────────────────────────────────────────────────
+type EmailStep = { type: "email"; emailNumber: number; totalEmails: number; body: string; timing: string; stepIndex: number };
+type LinkedInConnectStep = { type: "linkedin-connect"; timing: string; stepIndex: number };
+type LinkedInMessageStep = { type: "linkedin-message"; message: string; timing: string; stepIndex: number };
+type CadenceStep = EmailStep | LinkedInConnectStep | LinkedInMessageStep;
+
+const EMAIL_TIMINGS = ["Day 1", "Day 5", "Day 9", "Day 13", "Day 17"];
+
+// Builds the full ordered sequence of steps for a cadence record.
+// Rule: if "Connect on LinkedIn?" = "yes", insert a LinkedIn Connect step after Email 1.
+// Rule: if "LinkedIn Message" has content, insert a LinkedIn Message step the day after Email 2 (Day 6).
+const buildCadenceSteps = (cadence: any): CadenceStep[] => {
+  if (!cadence) return [];
+  const fields = cadence.fields || {};
+
+  const rawLinkedIn = getField(
+    cadence,
+    "connectOnLinkedIn", "Connect on LinkedIn?", "connect_on_linkedin", "linkedin_connect"
+  );
+  const rawLinkedInStr = String(rawLinkedIn || "").toLowerCase().trim();
+  const shouldConnectLinkedIn =
+    rawLinkedInStr !== "" &&
+    rawLinkedInStr !== "no" &&
+    rawLinkedInStr !== "false" &&
+    rawLinkedInStr !== "0";
+
+  const rawLinkedInMsg = getField(
+    cadence,
+    "linkedInMessage", "LinkedIn Message", "linkedin_message", "linkedinMessage"
+  );
+  const linkedInMessageText = typeof rawLinkedInMsg === "string" ? rawLinkedInMsg.trim() : "";
+
+  const emailSlots = [fields.email1, fields.email2, fields.email3, fields.email4, fields.email5];
+  const totalEmails = emailSlots.filter(Boolean).length;
+
+  const steps: CadenceStep[] = [];
+  let stepIndex = 0;
+  let emailNumber = 0;
+
+  emailSlots.forEach((body, slotIndex) => {
+    if (!body) return;
+    emailNumber++;
+
+    steps.push({ type: "email", emailNumber, totalEmails, body, timing: EMAIL_TIMINGS[slotIndex], stepIndex: stepIndex++ });
+
+    // After the first email slot: LinkedIn Connect
+    if (slotIndex === 0 && shouldConnectLinkedIn) {
+      steps.push({ type: "linkedin-connect", timing: "Day 2", stepIndex: stepIndex++ });
+    }
+
+    // After the second email slot: LinkedIn Message (day after Email 2)
+    if (slotIndex === 1 && linkedInMessageText) {
+      steps.push({ type: "linkedin-message", message: linkedInMessageText, timing: "Day 6", stepIndex: stepIndex++ });
+    }
+  });
+
+  return steps;
+};
+
+// ─── Quiz config ────────────────────────────────────────────────────────────────
+type QuizId = "position" | "provider" | "targetAccount" | "industry" | "module";
+
+const quizQuestions: Array<{
+  id: QuizId;
+  title: string;
+  subtitle: string;
+  fieldKeys: string[];
+  chipLabel: string;
+  optional?: boolean;
+}> = [
+  {
+    id: "position",
+    title: "Who are you emailing?",
+    subtitle: "Select the recipient's role",
+    fieldKeys: ["position", "Recipient Position", "recipientPosition", "recipient_position"],
+    chipLabel: "Recipient",
+  },
+  {
+    id: "provider",
+    title: "What system do they use today?",
+    subtitle: "Their current software or provider",
+    fieldKeys: ["currentProvider", "Current Provider", "current_provider"],
+    chipLabel: "Provider",
+    optional: true,
+  },
+  {
+    id: "targetAccount",
+    title: "Which account is this for?",
+    subtitle: "The target account or company type",
+    fieldKeys: ["targetAccount", "Target Account", "target_account"],
+    chipLabel: "Account",
+    optional: true,
+  },
+  {
+    id: "industry",
+    title: "What industry?",
+    subtitle: "The prospect's vertical",
+    fieldKeys: ["industry", "Industry"],
+    chipLabel: "Industry",
+    optional: true,
+  },
+  {
+    id: "module",
+    title: "Which module is most relevant?",
+    subtitle: "The product area you're pitching",
+    fieldKeys: ["module", "Module"],
+    chipLabel: "Module",
+    optional: true,
+  },
+];
+
+
+// ─── ClearableSelect ───────────────────────────────────────────────────────────
+const ClearableSelect = ({
+  label,
+  value,
+  onChange,
+  onClear,
+  options,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  onClear: () => void;
+  options: string[];
+  placeholder: string;
+}) => (
+  <div className="space-y-1.5">
+    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</label>
+    <div className="relative">
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="w-full pr-9 bg-background border-border/70 h-9 text-sm">
+          <SelectValue placeholder={placeholder} />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((opt) => (
+            <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {value && (
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClear(); }}
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted active:bg-muted/80 transition-colors duration-200"
+          aria-label={`Clear ${label}`}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  </div>
+);
+
+// ─── Skeleton ──────────────────────────────────────────────────────────────────
+const SkeletonCard = () => (
+  <div className="rounded-xl border bg-card p-5 animate-pulse space-y-3">
+    <div className="flex items-center justify-between">
+      <div className="h-5 w-1/3 bg-muted rounded-md" />
+      <div className="h-5 w-16 bg-muted rounded-full" />
+    </div>
+    <div className="h-3.5 w-2/3 bg-muted rounded-md" />
+    <div className="h-3 w-1/2 bg-muted rounded-md" />
+    <div className="flex gap-2 pt-1">
+      <div className="h-5 w-20 bg-muted rounded-full" />
+      <div className="h-5 w-16 bg-muted rounded-full" />
+    </div>
+  </div>
+);
+
+// ─── Main Component ────────────────────────────────────────────────────────────
+export default function Block() {
+  // Filter state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedPosition, setSelectedPosition] = useState("");
+  const [selectedProvider, setSelectedProvider] = useState("");
+  const [selectedTargetAccount, setSelectedTargetAccount] = useState("");
+  const [selectedIndustry, setSelectedIndustry] = useState("");
+  const [selectedModule, setSelectedModule] = useState("");
+  const [selectedCadence, setSelectedCadence] = useState<any>(null);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [expandedEmails, setExpandedEmails] = useState<Record<number, boolean>>({});
+  const [viewAll, setViewAll] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Quiz state
+  const [quizOpen, setQuizOpen] = useState(false);
+  const [quizStep, setQuizStep] = useState(0);
+  const [quizAnswers, setQuizAnswers] = useState<Partial<Record<QuizId, string>>>({});
+  const [quizAutoApplied, setQuizAutoApplied] = useState(false);
+
+  const searchRef = useRef<HTMLInputElement>(null);
+  const quizContainerRef = useRef<HTMLDivElement>(null);
+
+  const anyFieldFilled = selectedPosition || selectedProvider || selectedTargetAccount || selectedIndustry || selectedModule;
+  const activeFilterCount = [selectedPosition, selectedProvider, selectedTargetAccount, selectedIndustry, selectedModule].filter(Boolean).length;
+  const hasSearchOrFilter = searchQuery || anyFieldFilled || viewAll;
+
+  // ─── Active filter chips (for strip below filters) ─────────────────────────
+  const activeFilters: { label: string; value: string; clear: () => void }[] = [
+    ...(selectedPosition ? [{ label: "Recipient", value: selectedPosition, clear: () => { setSelectedPosition(""); handleFilterChange(); } }] : []),
+    ...(selectedProvider ? [{ label: "Provider", value: selectedProvider, clear: () => { setSelectedProvider(""); handleFilterChange(); } }] : []),
+    ...(selectedTargetAccount ? [{ label: "Account", value: selectedTargetAccount, clear: () => { setSelectedTargetAccount(""); handleFilterChange(); } }] : []),
+    ...(selectedIndustry ? [{ label: "Industry", value: selectedIndustry, clear: () => { setSelectedIndustry(""); handleFilterChange(); } }] : []),
+    ...(selectedModule ? [{ label: "Module", value: selectedModule, clear: () => { setSelectedModule(""); handleFilterChange(); } }] : []),
+  ];
+
+  // ─── Data fetching ─────────────────────────────────────────────────────────
+  const filter = useMemo(() => {
+    const filters: any[] = [q.array("status").hasAllOf(["1"])];
+    if (selectedPosition) filters.push(q.array("position").isOneOf([selectedPosition]));
+    if (selectedProvider) filters.push(q.text("currentProvider").is(selectedProvider));
+    if (selectedTargetAccount) filters.push(q.text("targetAccount").is(selectedTargetAccount));
+    if (selectedIndustry) filters.push(q.array("industry").hasAllOf([selectedIndustry]));
+    if (selectedModule) filters.push(q.array("module").hasAllOf([selectedModule]));
+    return filters.length > 1 ? q.and(...filters) : filters[0];
+  }, [selectedPosition, selectedProvider, selectedTargetAccount, selectedIndustry, selectedModule]);
+
+  const { data, status } = useRecords({
+    select,
+    where: filter,
+    orderBy: q.asc("name"),
+    count: 100,
+  });
+
+  const safeRawResults = useMemo(() => {
+    try {
+      if (!data?.pages) return [];
+      const items = data.pages.flatMap((page: any) => page?.items || []);
+      return Array.isArray(items) ? items.filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }, [data]);
+
+  const viewModels = useMemo(
+    () =>
+      safeRawResults.map((record: any, index: number) => {
+        const fields = record?.fields || {};
+        const emailCount = [fields.email1, fields.email2, fields.email3, fields.email4, fields.email5].filter(Boolean).length;
+        const rawLinkedIn = getField(record, "connectOnLinkedIn", "Connect on LinkedIn?", "connect_on_linkedin");
+        const rawLinkedInStr = String(rawLinkedIn || "").toLowerCase().trim();
+        const hasLinkedIn = rawLinkedInStr !== "" && rawLinkedInStr !== "no" && rawLinkedInStr !== "false" && rawLinkedInStr !== "0";
+        const rawLinkedInMsg = getField(record, "linkedInMessage", "LinkedIn Message", "linkedin_message");
+        const hasLinkedInMsg = !!(typeof rawLinkedInMsg === "string" ? rawLinkedInMsg.trim() : rawLinkedInMsg);
+        const stepCount = emailCount + (hasLinkedIn ? 1 : 0) + (hasLinkedInMsg ? 1 : 0);
+        return {
+          id: record?.id || record?._id || record?.itemId || `item-${index}`,
+          title: fields.name || "",
+          description: fields.scenario || "",
+          tags: buildTags(record),
+          emailCount,
+          stepCount,
+          hasLinkedIn,
+          hasLinkedInMsg,
+          rawRecord: record,
+        };
+      }),
+    [safeRawResults]
+  );
+
+  const matchingViewModels = useMemo(() => {
+    if (!Array.isArray(viewModels)) return [];
+    if (!searchQuery) return viewModels;
+    const s = searchQuery.toLowerCase();
+    return viewModels
+      .filter((vm) => vm.title.toLowerCase().includes(s) || vm.description.toLowerCase().includes(s))
+      .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
+  }, [viewModels, searchQuery]);
+
+  // ─── Cadence steps for detail view ────────────────────────────────────────
+  const cadenceSteps = useMemo(() => buildCadenceSteps(selectedCadence), [selectedCadence]);
+
+  // ─── Handlers ──────────────────────────────────────────────────────────────
+  const toggleEmail = (index: number) =>
+    setExpandedEmails((prev) => ({ ...prev, [index]: !prev[index] }));
+
+  const copyToClipboard = async (email: any, index: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const processedHtml = processHtmlLinks(email.body);
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = processedHtml;
+      const plainText = tempDiv.innerText || tempDiv.textContent || "";
+
+      if (navigator.clipboard && (navigator.clipboard as any).write) {
+        const blobHtml = new Blob([processedHtml], { type: "text/html" });
+        const blobText = new Blob([plainText], { type: "text/plain" });
+        const item = new (window as any).ClipboardItem({ "text/html": blobHtml, "text/plain": blobText });
+        await (navigator.clipboard as any).write([item]);
+      } else {
+        const el = document.createElement("div");
+        el.contentEditable = "true";
+        el.innerHTML = processedHtml;
+        el.style.cssText = "position:fixed;left:-9999px";
+        document.body.appendChild(el);
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        document.execCommand("copy");
+        document.body.removeChild(el);
+      }
+
+      setCopiedId(index);
+      toast.success("Email copied with formatting!");
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) {
+      toast.error("Failed to copy email");
+    }
+  };
+
+  const handleFilterChange = () => {
+    setSelectedCadence(null);
+    setExpandedEmails({});
+  };
+
+  const clearAllFilters = () => {
+    setSearchQuery("");
+    setSelectedPosition("");
+    setSelectedProvider("");
+    setSelectedTargetAccount("");
+    setSelectedIndustry("");
+    setSelectedModule("");
+    setSelectedCadence(null);
+    setExpandedEmails({});
+    setViewAll(false);
+    setFiltersOpen(false);
+  };
+
+  // ─── Live dropdown options ─────────────────────────────────────────────────
+  const computeLiveOptions = (fieldKeys: string[]) => {
+    const unique = new Map<string, string>();
+    safeRawResults.forEach((rec) => {
+      toArray(getField(rec, ...fieldKeys)).forEach((val) => {
+        const label = String(val || "").trim();
+        if (!label) return;
+        const lower = label.toLowerCase();
+        if (!unique.has(lower)) unique.set(lower, label);
+      });
+    });
+    const all = Array.from(unique.values()).sort((a, b) => a.localeCompare(b));
+    const special = all.filter((x) => ["unknown", "general"].includes(x.toLowerCase()));
+    const normal = all.filter((x) => !["unknown", "general"].includes(x.toLowerCase()));
+    return [...normal, ...special];
+  };
+
+  const livePositionOptions = useMemo(() => computeLiveOptions(quizQuestions[0].fieldKeys), [safeRawResults]);
+  const liveProviderOptions = useMemo(() => computeLiveOptions(quizQuestions[1].fieldKeys), [safeRawResults]);
+  const liveAccountOptions = useMemo(() => computeLiveOptions(quizQuestions[2].fieldKeys), [safeRawResults]);
+  const liveIndustryOptions = useMemo(() => computeLiveOptions(quizQuestions[3].fieldKeys), [safeRawResults]);
+  const liveModuleOptions = useMemo(() => computeLiveOptions(quizQuestions[4].fieldKeys), [safeRawResults]);
+
+  // ─── Quiz logic ─────────────────────────────────────────────────────────────
+  const computeQuizFilteredRecords = (excludeId: QuizId | null = null) => {
+    let filtered = [...safeRawResults];
+    quizQuestions.forEach((qq) => {
+      if (excludeId && qq.id === excludeId) return;
+      const selectedVal = quizAnswers[qq.id];
+      if (!selectedVal) return;
+      filtered = filtered.filter((rec) => {
+        const raw = getField(rec, ...qq.fieldKeys);
+        return toArray(raw).some((x) => x.toLowerCase() === selectedVal.toLowerCase());
+      });
+    });
+    return filtered;
+  };
+
+  const quizFilteredRecords = useMemo(
+    () => computeQuizFilteredRecords(null),
+    [safeRawResults, quizAnswers]
+  );
+
+  const computeQuizOptionsForStep = (stepIndex: number) => {
+    const question = quizQuestions[stepIndex];
+    const base = computeQuizFilteredRecords(question.id);
+    const unique = new Map<string, string>();
+    base.forEach((rec) => {
+      toArray(getField(rec, ...question.fieldKeys)).forEach((val) => {
+        const label = String(val || "").trim();
+        if (!label) return;
+        const lower = label.toLowerCase();
+        if (!unique.has(lower)) unique.set(lower, label);
+      });
+    });
+    const all = Array.from(unique.values()).sort((a, b) => a.localeCompare(b));
+    const special = all.filter((x) => ["unknown", "general"].includes(x.toLowerCase()));
+    const normal = all.filter((x) => !["unknown", "general"].includes(x.toLowerCase()));
+    return [...normal, ...special];
+  };
+
+  const currentQuizQuestion = quizQuestions[quizStep];
+  const currentQuizOptions = useMemo(() => {
+    if (!quizOpen || status !== "success" || !currentQuizQuestion) return [];
+    return computeQuizOptionsForStep(quizStep);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quizOpen, status, quizStep, safeRawResults, quizAnswers]);
+
+  useEffect(() => {
+    if (!quizOpen || status !== "success" || !currentQuizQuestion) return;
+    const opts = currentQuizOptions;
+
+    if (opts.length === 0) {
+      if (quizStep < quizQuestions.length - 1) setQuizStep((s) => s + 1);
+      return;
+    }
+    const already = quizAnswers[currentQuizQuestion.id];
+    if (!already && opts.length === 1) {
+      setQuizAnswers((prev) => ({ ...prev, [currentQuizQuestion.id]: opts[0] }));
+      return;
+    }
+    if (quizFilteredRecords.length === 1 && !quizAutoApplied) {
+      applyQuizNow();
+      setQuizAutoApplied(true);
+      setQuizOpen(false);
+      return;
+    }
+    if (already && quizStep < quizQuestions.length - 1) {
+      setQuizStep((s) => s + 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quizOpen, status, quizStep, currentQuizOptions, quizAnswers, quizFilteredRecords]);
+
+  const openQuiz = () => {
+    setQuizAnswers({});
+    setQuizStep(0);
+    setQuizAutoApplied(false);
+    setQuizOpen(true);
+    setTimeout(() => quizContainerRef.current?.focus(), 0);
+  };
+
+  const closeQuiz = () => setQuizOpen(false);
+
+  const quizSelectAnswer = (value: string) => {
+    if (!currentQuizQuestion) return;
+    setQuizAnswers((prev) => ({ ...prev, [currentQuizQuestion.id]: value }));
+  };
+
+  const applyQuizNow = () => {
+    setSelectedPosition(quizAnswers.position || "");
+    setSelectedProvider(quizAnswers.provider || "");
+    setSelectedTargetAccount(quizAnswers.targetAccount || "");
+    setSelectedIndustry(quizAnswers.industry || "");
+    setSelectedModule(quizAnswers.module || "");
+    setQuizOpen(false);
+    setSelectedCadence(null);
+    setExpandedEmails({});
+    setViewAll(true);
+  };
+
+  const quizSkip = () => {
+    if (!currentQuizQuestion) return;
+    setQuizAnswers((prev) => { const n = { ...prev }; delete (n as any)[currentQuizQuestion.id]; return n; });
+    if (quizStep < quizQuestions.length - 1) setQuizStep((s) => s + 1);
+    else applyQuizNow();
+  };
+
+  const quizBack = () => { if (quizStep > 0) setQuizStep((s) => s - 1); };
+
+  const quizAnswerCount = Object.values(quizAnswers).filter(Boolean).length;
+
+  useEffect(() => {
+    if (!quizOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeQuiz(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [quizOpen]);
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+  try {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="max-w-5xl mx-auto px-4 py-10">
+
+          {/* ── Page Header ─────────────────────────────────────────────────── */}
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Sales Cadence Library</h1>
+            <p className="mt-1.5 text-muted-foreground text-base">
+              Find the perfect multi-touch outreach sequence for any prospect — search, filter, or take the quiz.
+            </p>
+          </div>
+
+          {/* ── Search + Quiz CTA ────────────────────────────────────────────── */}
+          <div className="flex gap-3 mb-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                ref={searchRef}
+                type="text"
+                placeholder="Search by name or scenario…"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); if (e.target.value) setViewAll(true); }}
+                className="pl-10 h-11 text-sm bg-background"
+              />
+              {searchQuery && (
+                <button
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted active:bg-muted/80 transition-colors duration-200"
+                  onClick={() => setSearchQuery("")}
+                  aria-label="Clear search"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Filters toggle */}
+            <Button
+              variant={filtersOpen ? "default" : "outline"}
+              onClick={() => setFiltersOpen((v) => !v)}
+              className="h-11 gap-2 shrink-0"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="ml-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-xs font-semibold">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+
+            {/* Quiz CTA */}
+            <Button
+              variant="outline"
+              onClick={openQuiz}
+              className="h-11 gap-2 shrink-0 border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/60"
+            >
+              <Wand2 className="h-4 w-4" />
+              Find by Quiz
+            </Button>
+          </div>
+
+          {/* ── Filter Panel (collapsible) ───────────────────────────────────── */}
+          {filtersOpen && (
+            <div className="mb-4 p-4 rounded-xl border bg-muted/30 animate-in fade-in-0 slide-in-from-top-2 duration-200">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <ClearableSelect
+                  label="Recipient"
+                  value={selectedPosition}
+                  onChange={(v) => { setSelectedPosition(v); handleFilterChange(); }}
+                  onClear={() => { setSelectedPosition(""); handleFilterChange(); }}
+                  options={livePositionOptions}
+                  placeholder="Any position"
+                />
+                <ClearableSelect
+                  label="Provider"
+                  value={selectedProvider}
+                  onChange={(v) => { setSelectedProvider(v); handleFilterChange(); }}
+                  onClear={() => { setSelectedProvider(""); handleFilterChange(); }}
+                  options={liveProviderOptions}
+                  placeholder="Any provider"
+                />
+                <ClearableSelect
+                  label="Account"
+                  value={selectedTargetAccount}
+                  onChange={(v) => { setSelectedTargetAccount(v); handleFilterChange(); }}
+                  onClear={() => { setSelectedTargetAccount(""); handleFilterChange(); }}
+                  options={liveAccountOptions}
+                  placeholder="Any account"
+                />
+                <ClearableSelect
+                  label="Industry"
+                  value={selectedIndustry}
+                  onChange={(v) => { setSelectedIndustry(v); handleFilterChange(); }}
+                  onClear={() => { setSelectedIndustry(""); handleFilterChange(); }}
+                  options={liveIndustryOptions}
+                  placeholder="Any industry"
+                />
+                <ClearableSelect
+                  label="Module"
+                  value={selectedModule}
+                  onChange={(v) => { setSelectedModule(v); handleFilterChange(); }}
+                  onClear={() => { setSelectedModule(""); handleFilterChange(); }}
+                  options={liveModuleOptions}
+                  placeholder="Any module"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* ── Active filter chips + clear all ──────────────────────────────── */}
+          {activeFilters.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              {activeFilters.map((f) => (
+                <span
+                  key={f.label}
+                  className="inline-flex items-center gap-1.5 pl-3 pr-1 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium border border-primary/20"
+                >
+                  <span className="opacity-70">{f.label}:</span>
+                  <span>{f.value}</span>
+                  <button
+                    onClick={f.clear}
+                    className="h-6 w-6 flex items-center justify-center rounded-full hover:bg-primary/20 active:bg-primary/30 transition-colors"
+                    aria-label={`Remove ${f.label} filter`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+              <button
+                onClick={clearAllFilters}
+                className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline transition-colors ml-1 py-1.5 px-1"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+
+          {/* ── Main content area ─────────────────────────────────────────────── */}
+          {!hasSearchOrFilter ? (
+            /* ── Empty / Landing State ────────────────────────────────────── */
+            <div className="mt-4">
+              <div className="rounded-2xl border-2 border-dashed border-border/60 bg-muted/20 p-12 text-center">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+                  <Layers className="h-7 w-7 text-primary" />
+                </div>
+                <h2 className="text-xl font-semibold text-foreground mb-2">Find Your Cadence</h2>
+                <p className="text-muted-foreground text-sm max-w-sm mx-auto mb-8">
+                  Search by name, use the filters above, or answer a few quick questions to get a personalized recommendation.
+                </p>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <Button
+                    size="lg"
+                    onClick={() => { setViewAll(true); }}
+                    className="w-full sm:w-auto gap-2"
+                  >
+                    <Layers className="h-4 w-4" />
+                    Browse All Cadences
+                  </Button>
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    onClick={openQuiz}
+                    className="w-full sm:w-auto gap-2 border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
+                  >
+                    <Wand2 className="h-4 w-4" />
+                    Take the Quiz
+                  </Button>
+                </div>
+              </div>
+
+            </div>
+          ) : status === "pending" ? (
+            /* ── Loading Skeletons ────────────────────────────────────────── */
+            <div className="space-y-3 mt-2">
+              {[1, 2, 3].map((i) => <SkeletonCard key={i} />)}
+            </div>
+          ) : !selectedCadence ? (
+            /* ── Cadence List ─────────────────────────────────────────────── */
+            <div>
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">
+                    {searchQuery ? "Search Results" : anyFieldFilled ? "Filtered Cadences" : "All Cadences"}
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    {matchingViewModels.length === 0
+                      ? "No matches found"
+                      : `${matchingViewModels.length} ${matchingViewModels.length === 1 ? "cadence" : "cadences"} available`}
+                  </p>
+                </div>
+                {hasSearchOrFilter && (
+                  <Button variant="ghost" size="sm" onClick={clearAllFilters} className="text-muted-foreground gap-1.5">
+                    <X className="h-3.5 w-3.5" />
+                    Reset
+                  </Button>
+                )}
+              </div>
+
+              {matchingViewModels.length === 0 ? (
+                <div className="rounded-xl border border-dashed bg-muted/20 p-10 text-center">
+                  <Search className="mx-auto h-8 w-8 text-muted-foreground/50 mb-3" />
+                  <p className="font-medium text-foreground mb-1">No cadences found</p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    {searchQuery
+                      ? `Nothing matched "${searchQuery}". Try a different term.`
+                      : "No cadences match this combination. Try removing a filter."}
+                  </p>
+                  <Button variant="outline" size="sm" onClick={clearAllFilters}>Clear filters</Button>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {matchingViewModels.map((vm) => (
+                    <button
+                      key={vm.id}
+                      className="group w-full text-left rounded-xl border bg-card hover:border-primary/50 hover:shadow-md active:scale-[0.99] transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                      onClick={() => setSelectedCadence(vm.rawRecord)}
+                    >
+                      <div className="p-5">
+                        <div className="flex items-center gap-3">
+                          {/* Step count badge */}
+                          <div className="shrink-0 flex flex-col items-center justify-center w-11 h-11 rounded-lg bg-primary/8 border border-primary/15 text-primary">
+                            <span className="text-lg font-bold leading-none">{vm.stepCount}</span>
+                            <span className="text-[9px] font-semibold uppercase tracking-wider opacity-70 mt-0.5">
+                              {vm.stepCount === 1 ? "step" : "steps"}
+                            </span>
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-3">
+                              <h3 className="font-semibold text-foreground text-base leading-snug group-hover:text-primary transition-colors">
+                                {vm.title || "Untitled"}
+                              </h3>
+                              <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+                            </div>
+                            {vm.description && (
+                              <p className="text-sm text-muted-foreground mt-1 line-clamp-2 leading-relaxed">
+                                {vm.description}
+                              </p>
+                            )}
+                            {vm.tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-3">
+                                {vm.tags.map((tag, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-border/50 text-xs"
+                                  >
+                                    <span className="text-muted-foreground capitalize">{tag.category}:</span>
+                                    <span className="font-medium text-foreground">{tag.label}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* ── Email Detail View ────────────────────────────────────────── */
+            <div>
+              {/* Back nav */}
+              <button
+                onClick={() => { setSelectedCadence(null); setExpandedEmails({}); }}
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6 py-1.5 transition-colors duration-200 group outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded"
+              >
+                <ArrowLeft className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />
+                Back to cadences
+              </button>
+
+              {/* Cadence header card */}
+              <div className="rounded-xl border bg-card p-6 mb-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-xl font-bold text-foreground truncate">{selectedCadence.fields.name}</h2>
+                    {selectedCadence.fields.scenario && (
+                      <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">
+                        {selectedCadence.fields.scenario}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Timeline overview — all steps */}
+                {cadenceSteps.length > 0 && (
+                  <div className="mt-5 flex items-center gap-1.5 flex-wrap">
+                    {cadenceSteps.map((step, i) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            if (step.type === "email") {
+                              setExpandedEmails((prev) => ({ ...prev, [step.stepIndex]: true }));
+                            }
+                            setTimeout(() => {
+                              document.getElementById(`cadence-step-${step.stepIndex}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                            }, 50);
+                          }}
+                          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium border transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 active:scale-95 min-h-[36px]
+                            ${step.type === "linkedin-connect" || step.type === "linkedin-message"
+                              ? "bg-[#EBF4FF] border-[#0A66C2]/25 text-[#0A66C2] hover:bg-[#D6EAFF]"
+                              : "bg-primary/8 border-primary/20 text-primary hover:bg-primary/15"
+                            }`}
+                        >
+                          {step.type === "linkedin-connect" || step.type === "linkedin-message" ? (
+                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                              <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                            </svg>
+                          ) : (
+                            <Clock className="h-3 w-3" />
+                          )}
+                          {step.timing}
+                        </button>
+                        {i < cadenceSteps.length - 1 && <div className="h-px w-3 bg-border" />}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Step cards */}
+              <div className="space-y-2">
+                {cadenceSteps.map((step) => (
+                  <div key={step.stepIndex} id={`cadence-step-${step.stepIndex}`}>
+
+                    {/* ── Email step ── */}
+                    {step.type === "email" && (
+                      <Card className="overflow-hidden transition-all duration-200 border-border/70">
+                        <div
+                          className="flex items-center justify-between gap-3 px-4 py-3 min-h-[44px] cursor-pointer hover:bg-muted/30 transition-colors duration-200"
+                          onClick={() => toggleEmail(step.stepIndex)}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="h-6 w-6 shrink-0 flex items-center justify-center">
+                              <svg viewBox="0 0 255 175" className="h-5 w-5" aria-hidden="true">
+                                <path fill="#00A1E0" d="M103.75,19.1c8.1-8.399,19.3-13.6,31.7-13.6c16.5,0,30.899,9.2,38.6,22.899c6.7-3,14-4.6,21.8-4.6c29.801,0,53.9,24.4,53.9,54.4s-24.1,54.399-53.9,54.399c-3.6,0-7.199-0.399-10.6-1.1c-6.8,12-19.6,20.2-34.4,20.2c-6.199,0-12-1.4-17.199-4c-6.801,16.1-22.801,27.399-41.4,27.399c-19.4,0-35.9-12.3-42.2-29.399c-2.8,0.6-5.6,0.899-8.6,0.899c-23.101,0-41.7-18.899-41.7-42.2c0-15.6,8.4-29.199,20.9-36.5c-2.601-5.899-4-12.399-4-19.3C16.549,21.7,38.349,0,65.15,0C80.95,0,94.95,7.5,103.75,19.1"/>
+                              </svg>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-foreground">Email {step.emailNumber}</span>
+                              <span className="text-xs text-muted-foreground">{step.timing}</span>
+                            </div>
+                          </div>
+
+                          <ChevronDown
+                            className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 ${
+                              expandedEmails[step.stepIndex] ? "rotate-180" : ""
+                            }`}
+                          />
+                        </div>
+
+                        {expandedEmails[step.stepIndex] && (
+                          <CardContent className="pt-0 pb-5 px-5 border-t border-border/50 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+                            <div className="mt-3 flex justify-end">
+                              <Button
+                                size="sm"
+                                onClick={(e) => copyToClipboard(step, step.stepIndex, e)}
+                                className={`gap-1.5 transition-all ${
+                                  copiedId === step.stepIndex ? "bg-emerald-600 hover:bg-emerald-700" : ""
+                                }`}
+                              >
+                                {copiedId === step.stepIndex ? (
+                                  <><Check className="h-3.5 w-3.5" /> Copied!</>
+                                ) : (
+                                  <><Copy className="h-3.5 w-3.5" /> Copy</>
+                                )}
+                              </Button>
+                            </div>
+                            <div className="mt-3 rounded-lg bg-muted/40 border border-border/40 p-5">
+                              <div
+                                className="email-body prose-sm max-w-none text-[14px] leading-relaxed text-foreground"
+                                dangerouslySetInnerHTML={{ __html: processHtmlLinks(step.body) }}
+                              />
+                            </div>
+                          </CardContent>
+                        )}
+                      </Card>
+                    )}
+
+                    {/* ── LinkedIn Connect step ── */}
+                    {step.type === "linkedin-connect" && (
+                      <Card className="overflow-hidden border-[#0A66C2]/20 bg-[#EBF4FF]/30">
+                        <div className="flex items-center justify-between gap-3 px-4 py-3 min-h-[44px]">
+                          <div className="flex items-center gap-3">
+                            <div className="h-6 w-6 shrink-0 flex items-center justify-center">
+                              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#0A66C2" aria-hidden="true">
+                                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                              </svg>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-[#0A66C2]">Connect on LinkedIn</span>
+                              <span className="text-xs text-[#0A66C2]/60">{step.timing}</span>
+                            </div>
+                          </div>
+                          <div className="w-4 shrink-0" />
+                        </div>
+                      </Card>
+                    )}
+
+                    {/* ── LinkedIn Message step ── */}
+                    {step.type === "linkedin-message" && (
+                      <Card className="overflow-hidden transition-all duration-200 border-[#0A66C2]/20 bg-[#EBF4FF]/30">
+                        <div
+                          className="flex items-center justify-between gap-3 px-4 py-3 min-h-[44px] cursor-pointer hover:bg-[#EBF4FF]/60 transition-colors duration-200"
+                          onClick={() => toggleEmail(step.stepIndex)}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="h-5 w-5 shrink-0 flex items-center justify-center">
+                              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="#0A66C2" aria-hidden="true">
+                                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                              </svg>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-[#0A66C2]">Send LinkedIn Message</span>
+                              <span className="text-xs text-[#0A66C2]/60">{step.timing}</span>
+                            </div>
+                          </div>
+                          <ChevronDown
+                            className={`h-4 w-4 shrink-0 text-[#0A66C2]/60 transition-transform duration-200 ${
+                              expandedEmails[step.stepIndex] ? "rotate-180" : ""
+                            }`}
+                          />
+                        </div>
+                        {expandedEmails[step.stepIndex] && (
+                          <CardContent className="pt-0 pb-5 px-5 border-t border-[#0A66C2]/15 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+                            <div className="mt-3 flex justify-end">
+                              <Button
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const tempDiv = document.createElement("div");
+                                  tempDiv.innerHTML = processHtmlLinks(step.message);
+                                  const plainText = tempDiv.innerText || tempDiv.textContent || step.message;
+                                  navigator.clipboard.writeText(plainText)
+                                    .then(() => { setCopiedId(step.stepIndex); toast.success("Message copied!"); setTimeout(() => setCopiedId(null), 2000); })
+                                    .catch(() => toast.error("Failed to copy"));
+                                }}
+                                className={`gap-1.5 transition-all ${
+                                  copiedId === step.stepIndex ? "bg-emerald-600 hover:bg-emerald-700" : ""
+                                }`}
+                              >
+                                {copiedId === step.stepIndex ? (
+                                  <><Check className="h-3.5 w-3.5" /> Copied!</>
+                                ) : (
+                                  <><Copy className="h-3.5 w-3.5" /> Copy</>
+                                )}
+                              </Button>
+                            </div>
+                            <div
+                              className="mt-3 rounded-lg bg-white/70 border border-[#0A66C2]/15 p-4 text-sm text-foreground leading-relaxed"
+                              dangerouslySetInnerHTML={{ __html: processHtmlLinks(step.message) }}
+                            />
+                          </CardContent>
+                        )}
+                      </Card>
+                    )}
+
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Quiz Modal ────────────────────────────────────────────────────── */}
+          {quizOpen && (
+            <div className="fixed inset-0 z-50">
+              {/* Backdrop */}
+              <div
+                className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in-0 duration-150"
+                onClick={closeQuiz}
+                aria-hidden="true"
+              />
+
+              {/* Modal */}
+              <div className="absolute inset-0 flex items-center justify-center p-4">
+                <div
+                  ref={quizContainerRef}
+                  tabIndex={-1}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Find the right cadence"
+                  className="w-full max-w-xl rounded-2xl bg-background shadow-2xl border border-border outline-none animate-in fade-in-0 zoom-in-95 duration-200 overflow-hidden"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Progress bar */}
+                  <div className="h-1 w-full bg-muted">
+                    <div
+                      className="h-full bg-primary transition-all duration-300"
+                      style={{ width: `${((quizStep + 1) / quizQuestions.length) * 100}%` }}
+                    />
+                  </div>
+
+                  {/* Header */}
+                  <div className="px-6 pt-5 pb-4 border-b border-border/60">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                            Step {quizStep + 1} of {quizQuestions.length}
+                          </span>
+                          {quizFilteredRecords.length > 0 && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-medium">
+                              <span className="font-bold">{quizFilteredRecords.length}</span> match{quizFilteredRecords.length !== 1 ? "es" : ""}
+                            </span>
+                          )}
+                        </div>
+                        <h2 className="text-xl font-bold text-foreground">Find the right cadence</h2>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={closeQuiz}
+                        className="h-9 w-9 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        aria-label="Close"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    {/* Selection chips */}
+                    {quizAnswerCount > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-3">
+                        {quizQuestions.map((qq) => {
+                          const v = quizAnswers[qq.id];
+                          if (!v) return null;
+                          return (
+                            <span
+                              key={qq.id}
+                              className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs"
+                            >
+                              <span className="text-muted-foreground">{qq.chipLabel}:</span>
+                              <span className="font-semibold text-primary">{v}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setQuizAnswers((prev) => { const n = { ...prev }; delete (n as any)[qq.id]; return n; });
+                                  const idx = quizQuestions.findIndex((x) => x.id === qq.id);
+                                  if (idx >= 0) setQuizStep(idx);
+                                }}
+                                className="h-5 w-5 flex items-center justify-center rounded-full hover:bg-primary/20 active:bg-primary/30 text-primary transition-colors"
+                                aria-label={`Clear ${qq.chipLabel}`}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Body */}
+                  <div className="px-6 py-6">
+                    <div className="mb-5">
+                      <h3 className="text-2xl font-bold text-foreground">{currentQuizQuestion?.title}</h3>
+                      {currentQuizQuestion?.subtitle && (
+                        <p className="text-sm text-muted-foreground mt-1">{currentQuizQuestion.subtitle}</p>
+                      )}
+                      {currentQuizQuestion?.optional && (
+                        <span className="inline-block mt-2 text-xs text-muted-foreground border border-border/60 px-2 py-0.5 rounded-full">
+                          Optional
+                        </span>
+                      )}
+                    </div>
+
+                    {status === "pending" ? (
+                      <div className="space-y-2">
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} className="h-14 rounded-xl bg-muted animate-pulse" />
+                        ))}
+                      </div>
+                    ) : !Array.isArray(currentQuizOptions) || currentQuizOptions.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground text-sm">
+                        No options — skipping this step…
+                      </div>
+                    ) : (
+                      <div className="grid gap-2">
+                        {currentQuizOptions.map((opt) => {
+                          const isSelected = quizAnswers[currentQuizQuestion.id] === opt;
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => quizSelectAnswer(opt)}
+                              className={`w-full text-left px-4 py-3.5 rounded-xl border text-sm font-medium transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 active:scale-[0.98] min-h-[44px]
+                                ${isSelected
+                                  ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/30"
+                                  : "border-border bg-background text-foreground hover:border-primary/40 hover:bg-muted/40"
+                                }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span>{opt}</span>
+                                {isSelected && (
+                                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                                    <Check className="h-3 w-3" />
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="px-6 py-4 border-t border-border/60 bg-muted/20 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={quizBack} disabled={quizStep === 0} className="gap-1.5">
+                        <ChevronLeft className="h-4 w-4" />
+                        Back
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => { setQuizAnswers({}); setQuizStep(0); setQuizAutoApplied(false); }}
+                        className="text-muted-foreground"
+                      >
+                        Reset
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {quizAnswerCount > 0 && (
+                        <Button variant="outline" size="sm" onClick={applyQuizNow} className="border-primary/30 text-primary hover:bg-primary/5">
+                          Apply filters
+                        </Button>
+                      )}
+                      <Button size="sm" onClick={quizSkip} className="gap-1.5">
+                        {quizStep === quizQuestions.length - 1 ? "Finish" : "Skip"}
+                        <ChevronRightIcon className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Global email body styles ──────────────────────────────────────── */}
+        <style>{`
+          .email-body { font-size: 14px; line-height: 1.65; color: inherit; }
+          .email-body p { margin-bottom: 14px; }
+          .email-body p:last-child { margin-bottom: 0; }
+          .email-body ul { list-style-type: disc; padding-left: 20px; margin: 12px 0; }
+          .email-body ol { list-style-type: decimal; padding-left: 20px; margin: 12px 0; }
+          .email-body li { margin-bottom: 6px; }
+          .email-body strong, .email-body b { font-weight: 600; }
+          .email-body a { color: hsl(var(--primary)); text-decoration: none; }
+          .email-body a:hover { text-decoration: underline; }
+        `}</style>
+      </div>
+    );
+  } catch (err) {
+    console.error("[SalesCadenceLibrary] render error:", err);
+    return (
+      <div className="max-w-5xl mx-auto px-4 py-10">
+        <Card className="border-destructive">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center space-y-3">
+            <p className="text-lg font-semibold text-destructive">Something went wrong</p>
+            <p className="text-sm text-muted-foreground">Please reload the page or contact support.</p>
+            <Button onClick={() => window.location.reload()} variant="outline" className="mt-2">
+              Reload Page
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+}
