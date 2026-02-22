@@ -16,7 +16,6 @@ import {
   Search,
   FileText,
   X,
-  ArrowLeft,
   ArrowUpDown,
   Copy,
   Check,
@@ -275,6 +274,12 @@ function AssetRow({
   const CatIcon = catStyle.icon;
   const hasLink = !!f.publicLink;
   const hasFile = !!file?.url;
+  const previewAspectRatio =
+    preview?.width && preview?.height
+      ? `${preview.width} / ${preview.height}`
+      : catLabel === "One Pager"
+      ? "8.5 / 11"
+      : "4 / 3";
 
   return (
     <div
@@ -286,7 +291,10 @@ function AssetRow({
       <div className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4">
         {/* Thumbnail */}
         {preview?.url ? (
-          <div className="shrink-0 h-16 w-24 sm:h-20 sm:w-28 rounded-lg overflow-hidden bg-muted">
+          <div
+            className="shrink-0 h-16 sm:h-20 rounded-lg overflow-hidden bg-muted max-w-[112px] sm:max-w-[136px]"
+            style={{ aspectRatio: previewAspectRatio }}
+          >
             <img
               src={preview.url}
               alt={f.name || "Asset preview"}
@@ -318,7 +326,7 @@ function AssetRow({
                 {catLabel}
               </Badge>
             )}
-            {subcategories.slice(0, 2).map((sub, idx) => (
+            {subcategories.map((sub, idx) => (
               <Badge
                 key={idx}
                 variant="outline"
@@ -327,11 +335,6 @@ function AssetRow({
                 {sub}
               </Badge>
             ))}
-            {subcategories.length > 2 && (
-              <span className="text-[11px] text-muted-foreground">
-                +{subcategories.length - 2}
-              </span>
-            )}
           </div>
         </div>
 
@@ -419,7 +422,7 @@ export default function Block() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedSubcategory, setSelectedSubcategory] = useState("");
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(true);
   const [selectedAsset, setSelectedAsset] = useState<any>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [sortField, setSortField] = useState<string>("name");
@@ -666,6 +669,16 @@ export default function Block() {
     return () => document.removeEventListener("keydown", handler);
   }, [quizOpen]);
 
+  // Close asset preview on Escape
+  useEffect(() => {
+    if (!selectedAsset) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedAsset(null);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [selectedAsset]);
+
   // ─── Active filter chips ──────────────────────────────────────────────────
   const activeFilters: { label: string; value: string; clear: () => void }[] = [
     ...(selectedCategory
@@ -688,132 +701,32 @@ export default function Block() {
       : []),
   ];
 
-  // ─── Detail View ──────────────────────────────────────────────────────────
-  if (selectedAsset) {
-    const f = selectedAsset.fields;
-    const preview = Array.isArray(f.preview) ? f.preview[0] : f.preview;
-    const file = Array.isArray(f.file) ? f.file[0] : f.file;
-    const subcategories = toSubArray(f.subcategories);
-    const catLabel = labelOf(f.category);
-    const catStyle = getCategoryStyle(catLabel);
-    const CatIcon = catStyle.icon;
-    const isCopied = copiedLink === f.publicLink;
-
-    return (
-      <div className="min-h-screen bg-background">
-        <div className="max-w-5xl mx-auto px-3 sm:px-4 py-6 sm:py-10">
-          {/* Back nav */}
-          <button
-            onClick={() => setSelectedAsset(null)}
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6 py-1.5 transition-colors duration-200 group outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 rounded"
-          >
-            <ArrowLeft className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />
-            Back to assets
-          </button>
-
-          {/* Asset detail card */}
-          <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
-            {/* Preview image */}
-            {preview?.url ? (
-              <div className="relative bg-muted">
-                <img
-                  src={preview.url}
-                  alt={preview.filename || f.name}
-                  className="w-full max-h-[480px] object-contain mx-auto"
-                />
-              </div>
-            ) : (
-              <div className="h-48 bg-muted/40 flex flex-col items-center justify-center gap-3">
-                <div
-                  className={`h-16 w-16 rounded-xl border ${catStyle.border} ${catStyle.bg} flex items-center justify-center`}
-                >
-                  <CatIcon className={`h-8 w-8 ${catStyle.text}`} />
-                </div>
-                <span className="text-sm text-muted-foreground/60 font-medium">
-                  {catLabel || "Asset"}
-                </span>
-              </div>
-            )}
-
-            <div className="p-5 sm:p-8">
-              {/* Category + Subcategories */}
-              <div className="flex flex-wrap items-center gap-2 mb-4">
-                {catLabel && (
-                  <Badge
-                    variant="outline"
-                    className={`text-xs font-medium ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}
-                  >
-                    {catLabel}
-                  </Badge>
-                )}
-                {subcategories.map((sub, idx) => (
-                  <Badge key={idx} variant="outline" className="text-xs">
-                    {sub}
-                  </Badge>
-                ))}
-              </div>
-
-              {/* Title */}
-              <h2 className="text-xl sm:text-2xl font-bold text-foreground mb-3 leading-tight">
-                {f.name || "Untitled Asset"}
-              </h2>
-
-              {/* Description */}
-              {f.description && (
-                <p className="text-sm text-muted-foreground leading-relaxed mb-6 max-w-2xl">
-                  {f.description}
-                </p>
-              )}
-
-              {/* Action buttons */}
-              <div className="flex flex-wrap gap-3 pt-2">
-                {f.publicLink && (
-                  <Button
-                    onClick={() => window.open(f.publicLink, "_blank")}
-                    className="gap-2 min-h-[44px]"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    Open Link
-                  </Button>
-                )}
-                {file?.url && (
-                  <Button
-                    variant="outline"
-                    onClick={() => handleDownload(file)}
-                    className="gap-2 min-h-[44px]"
-                  >
-                    <Download className="h-4 w-4" />
-                    Download File
-                  </Button>
-                )}
-                {f.publicLink && (
-                  <Button
-                    variant="ghost"
-                    onClick={() => copyLink(f.publicLink)}
-                    className={`gap-2 min-h-[44px] transition-all duration-200 ${
-                      isCopied
-                        ? "text-emerald-600 hover:text-emerald-700"
-                        : ""
-                    }`}
-                  >
-                    {isCopied ? (
-                      <>
-                        <Check className="h-4 w-4" /> Copied
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-4 w-4" /> Copy Link
-                      </>
-                    )}
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const selectedAssetFields = selectedAsset?.fields;
+  const selectedPreview = selectedAssetFields
+    ? Array.isArray(selectedAssetFields.preview)
+      ? selectedAssetFields.preview[0]
+      : selectedAssetFields.preview
+    : null;
+  const selectedFile = selectedAssetFields
+    ? Array.isArray(selectedAssetFields.file)
+      ? selectedAssetFields.file[0]
+      : selectedAssetFields.file
+    : null;
+  const selectedSubcategories = selectedAssetFields
+    ? toSubArray(selectedAssetFields.subcategories)
+    : [];
+  const selectedCatLabel = selectedAssetFields
+    ? labelOf(selectedAssetFields.category)
+    : "";
+  const selectedCatStyle = getCategoryStyle(selectedCatLabel);
+  const SelectedCatIcon = selectedCatStyle.icon;
+  const isSelectedCopied = copiedLink === selectedAssetFields?.publicLink;
+  const selectedPreviewAspectRatio =
+    selectedPreview?.width && selectedPreview?.height
+      ? `${selectedPreview.width} / ${selectedPreview.height}`
+      : selectedCatLabel === "One Pager"
+      ? "8.5 / 11"
+      : "4 / 3";
 
   // ─── List View ────────────────────────────────────────────────────────────
   if (status === "pending") {
@@ -1321,6 +1234,130 @@ export default function Block() {
                       {quizStep === quizQuestions.length - 1 ? "Finish" : "Skip"}
                       <ChevronRight className="h-4 w-4" />
                     </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Asset Preview Modal ─────────────────────────────────────────── */}
+        {selectedAssetFields && (
+          <div className="fixed inset-0 z-50">
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in-0 duration-150"
+              onClick={() => setSelectedAsset(null)}
+              aria-hidden="true"
+            />
+
+            <div className="absolute inset-0 flex items-center justify-center p-4">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label={selectedAssetFields.name || "Asset preview"}
+                className="w-full max-w-5xl max-h-[90vh] rounded-2xl bg-background shadow-2xl border border-border outline-none animate-in fade-in-0 zoom-in-95 duration-200 overflow-hidden flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-border/60">
+                  <h2 className="text-base sm:text-lg font-semibold text-foreground truncate">
+                    {selectedAssetFields.name || "Untitled Asset"}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedAsset(null)}
+                    className="h-9 w-9 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Close preview"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="overflow-y-auto p-5 sm:p-6">
+                  {selectedPreview?.url ? (
+                    <div className="w-full rounded-xl border bg-muted/40 p-3 sm:p-4 mb-5">
+                      <div
+                        className="mx-auto max-h-[56vh] w-auto"
+                        style={{ aspectRatio: selectedPreviewAspectRatio }}
+                      >
+                        <img
+                          src={selectedPreview.url}
+                          alt={selectedPreview.filename || selectedAssetFields.name}
+                          className="h-full w-full object-contain rounded-lg"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="h-56 bg-muted/40 rounded-xl border flex flex-col items-center justify-center gap-3 mb-5">
+                      <div
+                        className={`h-16 w-16 rounded-xl border ${selectedCatStyle.border} ${selectedCatStyle.bg} flex items-center justify-center`}
+                      >
+                        <SelectedCatIcon className={`h-8 w-8 ${selectedCatStyle.text}`} />
+                      </div>
+                      <span className="text-sm text-muted-foreground/60 font-medium">
+                        {selectedCatLabel || "Asset"}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2 mb-3">
+                    {selectedCatLabel && (
+                      <Badge
+                        variant="outline"
+                        className={`text-xs font-medium ${selectedCatStyle.bg} ${selectedCatStyle.text} ${selectedCatStyle.border}`}
+                      >
+                        {selectedCatLabel}
+                      </Badge>
+                    )}
+                    {selectedSubcategories.map((sub, idx) => (
+                      <Badge key={idx} variant="outline" className="text-xs">
+                        {sub}
+                      </Badge>
+                    ))}
+                  </div>
+
+                  {selectedAssetFields.description && (
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+                      {selectedAssetFields.description}
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap gap-3">
+                    {selectedAssetFields.publicLink && (
+                      <Button
+                        onClick={() => window.open(selectedAssetFields.publicLink, "_blank")}
+                        className="gap-2 min-h-[42px]"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Open Link
+                      </Button>
+                    )}
+                    {selectedFile?.url && (
+                      <Button
+                        variant="outline"
+                        onClick={() => handleDownload(selectedFile)}
+                        className="gap-2 min-h-[42px]"
+                      >
+                        <Download className="h-4 w-4" />
+                        Download File
+                      </Button>
+                    )}
+                    {selectedAssetFields.publicLink && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => copyLink(selectedAssetFields.publicLink)}
+                        className={`gap-2 min-h-[42px] ${isSelectedCopied ? "text-emerald-600 hover:text-emerald-700" : ""}`}
+                      >
+                        {isSelectedCopied ? (
+                          <>
+                            <Check className="h-4 w-4" /> Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-4 w-4" /> Copy Link
+                          </>
+                        )}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
