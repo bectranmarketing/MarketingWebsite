@@ -380,7 +380,7 @@ const getPdfFrameSrc = (rawUrl: string, fileExt?: string): string => {
 };
 
 const MOBILE_PDF_FRAME_CLASS =
-  "absolute left-1/2 top-1/2 h-[640%] w-[640%] -translate-x-1/2 -translate-y-1/2 scale-[0.16] origin-center sm:static sm:h-full sm:w-full sm:translate-x-0 sm:translate-y-0 sm:scale-100";
+  "absolute left-1/2 top-1/2 h-[560%] w-[560%] -translate-x-1/2 -translate-y-1/2 scale-[0.18] origin-center sm:static sm:h-full sm:w-full sm:translate-x-0 sm:translate-y-0 sm:scale-100";
 
 const getPreviewSource = ({
   preview,
@@ -930,7 +930,7 @@ function AssetRow({
     ? "shrink-0 w-[150px] sm:w-[210px] rounded-lg overflow-hidden bg-muted"
     : "shrink-0 w-[112px] sm:w-[168px] rounded-lg overflow-hidden bg-muted";
   const imagePreviewClass = isDocumentPreview || isPngOrJpegPreview
-    ? "h-full w-full object-cover sm:object-contain bg-muted/40 p-0 sm:p-1.5 group-hover:scale-[1.02] transition-transform duration-500 ease-out"
+    ? "h-full w-full object-contain bg-muted/40 p-1.5 group-hover:scale-[1.02] transition-transform duration-500 ease-out"
     : "h-full w-full object-cover group-hover:scale-[1.03] transition-transform duration-500 ease-out";
   const fallbackThumbClass = isPortraitDocumentPreview
     ? `shrink-0 w-[104px] sm:w-[118px] aspect-[8.5/11] rounded-lg border ${catStyle.border} ${catStyle.bg} flex items-center justify-center`
@@ -2120,7 +2120,7 @@ export default function Block() {
                   {selectedPreviewSource.type !== "none" ? (
                     <div className="w-full rounded-xl border bg-muted/40 p-3 sm:p-4 mb-5">
                       <div
-                        className="mx-auto max-h-[60dvh] sm:max-h-[52vh] w-full sm:w-auto overflow-hidden rounded-lg"
+                        className="mx-auto max-h-[50dvh] sm:max-h-[52vh] w-auto max-w-full overflow-hidden rounded-lg"
                         style={{ aspectRatio: selectedPreviewSource.aspectRatio }}
                       >
                         {selectedPreviewSource.type === "image" ? (
