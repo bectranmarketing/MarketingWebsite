@@ -1,0 +1,376 @@
+import { useState, useEffect, useMemo } from "react";
+import { useRecords, useRecordUpdate, q } from "@/lib/datasource";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
+
+const select = q.select({
+  email: "contact_email",
+  eventsAndWebinarsSubscribed: "color_mm0x6y0m",
+  productUpdatesSubscribed: "color_mm0xfz08",
+  weeklyNewslettersSubscribed: "color_mm0x6shg",
+  quarterlyNewslettersSubscribed: "color_mm0xq9je",
+  companyNewsSubscribed: "color_mm0x7j7m",
+  marketingUnsubscribed: "contacts77101a63ab",
+  lastUpdated: "pulse_updated_mkygrq5t",
+});
+
+const updateFields = q.select({
+  eventsAndWebinarsSubscribed: "color_mm0x6y0m",
+  productUpdatesSubscribed: "color_mm0xfz08",
+  weeklyNewslettersSubscribed: "color_mm0x6shg",
+  quarterlyNewslettersSubscribed: "color_mm0xq9je",
+  companyNewsSubscribed: "color_mm0x7j7m",
+  marketingUnsubscribed: "contacts77101a63ab",
+  lastUpdated: "pulse_updated_mkygrq5t",
+});
+
+export default function Block() {
+  const [urlRecordId, setUrlRecordId] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("id");
+    setUrlRecordId(id);
+  }, []);
+
+  const { data, status, error } = useRecords({
+    select,
+    count: 200,
+  });
+
+  const updateRecord = useRecordUpdate({
+    fields: updateFields,
+    onSuccess: () => {
+      setSubmitted(true);
+    },
+  });
+
+  const items = data?.pages.flatMap((page) => page.items) || [];
+  const matchedRecords = items.filter((item) => String(item.id) === String(urlRecordId));
+  const record = matchedRecords[0];
+
+  const initialFormState = useMemo(() => {
+    if (!record) return null;
+    return {
+      eventsAndWebinarsSubscribed: record.fields.eventsAndWebinarsSubscribed?.label === "Subscribed",
+      productUpdatesSubscribed: record.fields.productUpdatesSubscribed?.label === "Subscribed",
+      weeklyNewslettersSubscribed: record.fields.weeklyNewslettersSubscribed?.label === "Subscribed",
+      quarterlyNewslettersSubscribed: record.fields.quarterlyNewslettersSubscribed?.label === "Subscribed",
+      companyNewsSubscribed: record.fields.companyNewsSubscribed?.label === "Subscribed",
+      marketingUnsubscribed: record.fields.marketingUnsubscribed?.label === "No Marketing",
+      wantsToResubscribe: false,
+    };
+  }, [record]);
+
+  const [formState, setFormState] = useState(initialFormState);
+
+  useEffect(() => {
+    if (initialFormState && !formState) {
+      setFormState(initialFormState);
+    }
+  }, [initialFormState, formState]);
+
+  if (matchedRecords.length > 1) {
+    return (
+      <div className="container py-12">
+        <div className="content max-w-2xl mx-auto">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>Duplicate records detected.</AlertDescription>
+          </Alert>
+        </div>
+      </div>
+    );
+  }
+
+  if (!urlRecordId || (status === "success" && matchedRecords.length === 0)) {
+    return (
+      <div className="container py-12">
+        <div className="content max-w-2xl mx-auto">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>Invalid or expired link.</AlertDescription>
+          </Alert>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "pending") {
+    return (
+      <div className="container py-12">
+        <div className="content max-w-2xl mx-auto text-center">
+          <p className="text-muted-foreground">Loading your preferences...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div className="container py-12">
+        <div className="content max-w-2xl mx-auto">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>Error loading preferences. Please try again.</AlertDescription>
+          </Alert>
+        </div>
+      </div>
+    );
+  }
+
+  if (!formState) {
+    return (
+      <div className="container py-12">
+        <div className="content max-w-2xl mx-auto text-center">
+          <p className="text-muted-foreground">Loading your preferences...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (submitted) {
+    return (
+      <div className="container py-12">
+        <div className="content max-w-2xl mx-auto">
+          <Alert className="border-green-200 bg-green-50">
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <AlertDescription className="text-green-800">
+              Your email preferences have been updated successfully.
+            </AlertDescription>
+          </Alert>
+        </div>
+      </div>
+    );
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+
+    // Validate resubscribe requirement
+    if (formState.marketingUnsubscribed && !formState.wantsToResubscribe) {
+      return;
+    }
+
+    const updatedFields = {
+      eventsAndWebinarsSubscribed: formState.eventsAndWebinarsSubscribed
+        ? "Subscribed"
+        : "Unsubscribed",
+      productUpdatesSubscribed: formState.productUpdatesSubscribed
+        ? "Subscribed"
+        : "Unsubscribed",
+      weeklyNewslettersSubscribed: formState.weeklyNewslettersSubscribed
+        ? "Subscribed"
+        : "Unsubscribed",
+      quarterlyNewslettersSubscribed: formState.quarterlyNewslettersSubscribed
+        ? "Subscribed"
+        : "Unsubscribed",
+      companyNewsSubscribed: formState.companyNewsSubscribed
+        ? "Subscribed"
+        : "Unsubscribed",
+      marketingUnsubscribed:
+        formState.marketingUnsubscribed && !formState.wantsToResubscribe
+          ? "No Marketing"
+          : "Marketing",
+      lastUpdated: new Date().toISOString(),
+    };
+
+    updateRecord.mutate({
+      recordId: record.id,
+      fields: updatedFields,
+    });
+  };
+
+  return (
+    <div className="container py-12">
+      <div className="content max-w-2xl mx-auto">
+        <Card>
+          <CardHeader>
+            <CardTitle>Manage Your Email Preferences</CardTitle>
+            <CardDescription>
+              Select the types of emails you would like to receive.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {formState.marketingUnsubscribed && (
+              <Alert className="mb-6">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  You are currently unsubscribed from all marketing emails.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-4">
+                <div className="flex flex-col gap-2">
+                  <Label className="text-sm font-medium">Email</Label>
+                  <p className="text-sm text-muted-foreground">
+                    {record.fields.email || "No email provided"}
+                  </p>
+                </div>
+
+                {formState.marketingUnsubscribed ? (
+                  <div className="flex items-start space-x-3 space-y-0">
+                    <Checkbox
+                      id="resubscribe"
+                      checked={formState.wantsToResubscribe}
+                      onCheckedChange={(checked) =>
+                        setFormState({ ...formState, wantsToResubscribe: checked === true })
+                      }
+                    />
+                    <Label
+                      htmlFor="resubscribe"
+                      className="text-sm font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                      I would like to resubscribe to marketing emails.
+                      <span className="text-destructive ml-1">*</span>
+                    </Label>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-start space-x-3 space-y-0">
+                      <Checkbox
+                        id="events"
+                        checked={formState.eventsAndWebinarsSubscribed}
+                        onCheckedChange={(checked) =>
+                          setFormState({
+                            ...formState,
+                            eventsAndWebinarsSubscribed: checked === true,
+                          })
+                        }
+                      />
+                      <Label
+                        htmlFor="events"
+                        className="text-sm font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      >
+                        Events & Webinars
+                      </Label>
+                    </div>
+
+                    <div className="flex items-start space-x-3 space-y-0">
+                      <Checkbox
+                        id="product"
+                        checked={formState.productUpdatesSubscribed}
+                        onCheckedChange={(checked) =>
+                          setFormState({
+                            ...formState,
+                            productUpdatesSubscribed: checked === true,
+                          })
+                        }
+                      />
+                      <Label
+                        htmlFor="product"
+                        className="text-sm font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      >
+                        Product Updates
+                      </Label>
+                    </div>
+
+                    <div className="flex items-start space-x-3 space-y-0">
+                      <Checkbox
+                        id="weekly"
+                        checked={formState.weeklyNewslettersSubscribed}
+                        onCheckedChange={(checked) =>
+                          setFormState({
+                            ...formState,
+                            weeklyNewslettersSubscribed: checked === true,
+                          })
+                        }
+                      />
+                      <Label
+                        htmlFor="weekly"
+                        className="text-sm font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      >
+                        Weekly Newsletters
+                      </Label>
+                    </div>
+
+                    <div className="flex items-start space-x-3 space-y-0">
+                      <Checkbox
+                        id="quarterly"
+                        checked={formState.quarterlyNewslettersSubscribed}
+                        onCheckedChange={(checked) =>
+                          setFormState({
+                            ...formState,
+                            quarterlyNewslettersSubscribed: checked === true,
+                          })
+                        }
+                      />
+                      <Label
+                        htmlFor="quarterly"
+                        className="text-sm font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      >
+                        Quarterly Newsletters
+                      </Label>
+                    </div>
+
+                    <div className="flex items-start space-x-3 space-y-0">
+                      <Checkbox
+                        id="company"
+                        checked={formState.companyNewsSubscribed}
+                        onCheckedChange={(checked) =>
+                          setFormState({
+                            ...formState,
+                            companyNewsSubscribed: checked === true,
+                          })
+                        }
+                      />
+                      <Label
+                        htmlFor="company"
+                        className="text-sm font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      >
+                        Company News
+                      </Label>
+                    </div>
+
+                    <div className="flex items-start space-x-3 space-y-0">
+                      <Checkbox
+                        id="marketing"
+                        checked={formState.marketingUnsubscribed}
+                        onCheckedChange={(checked) =>
+                          setFormState({
+                            ...formState,
+                            marketingUnsubscribed: checked === true,
+                          })
+                        }
+                      />
+                      <Label
+                        htmlFor="marketing"
+                        className="text-sm font-normal leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      >
+                        Marketing Unsubscribed
+                      </Label>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground mt-4">
+                      Note: Essential Customer Notices cannot be unsubscribed.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <Button
+                type="submit"
+                disabled={
+                  updateRecord.status === "pending" ||
+                  (formState.marketingUnsubscribed && !formState.wantsToResubscribe)
+                }
+                className="w-full"
+              >
+                {updateRecord.status === "pending"
+                  ? "Updating..."
+                  : "Update Preferences"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
